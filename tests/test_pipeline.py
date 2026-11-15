@@ -111,8 +111,11 @@ def test_options_reply_full_flow(env):
     assert calls["find"] == [(CareLevel.URGENT_CARE, True)]  # ankle -> needs X-ray
     state, ctx = store.get_conversation(p.user_id)
     assert state == "idle"
+    answered_at = ctx.pop("answered_at")
+    assert pipeline.is_recent({**ctx, "answered_at": answered_at})
     assert ctx == {"symptom_text": "think i sprained my ankle", "last_level_of_care": "urgent_care",
-                   "recommended_location_ids": ["b", "a"]}
+                   "recommended_location_ids": ["b", "a"],
+                   "point": {"lat": 32.88, "lon": -117.23, "label": "La Jolla"}}
     assert calls["followup"] == ["think i sprained my ankle"]
 
 
@@ -205,3 +208,91 @@ def test_red_flag_keeps_the_last_answer_for_followup(env, monkeypatch):
     monkeypatch.setattr(pipeline, "first_aid_reply", lambda text, p: TriageResult(True, "Call 911"))
     assert pipeline.first_reply(msg("his face is drooping"), p) == ["Call 911"]
     assert store.get_conversation(p.user_id) == ("idle", done)
+
+
+
+# --------------------------------------------------------------------------- after_answer
+
+def _answered(env, p):
+    store, calls = env
+    pipeline.first_reply(msg("think i sprained my ankle"), p)
+    pipeline.options_reply(msg("UCSD"), p, "think i sprained my ankle")
+    return store.get_conversation(p.user_id)[1]
+
+
+def test_no_place_named_gets_friendly_reask(env, monkeypatch):
+    store, _ = env
+    monkeypatch.setattr(pipeline, "extract_place", lambda text: None)
+    p = prof()
+    store.set_conversation(p.user_id, "awaiting_location", {"symptom_text": "ankle"})
+    out = pipeline.options_reply(msg("i don't know how to get there"), p, "ankle")
+    assert "cross street" in out[0] and "couldn't find" not in out[0]
+    assert store.get_conversation(p.user_id)[0] == "awaiting_location"
+
+
+def test_is_recent():
+    now = datetime(2026, 11, 15, 19, 0, tzinfo=timezone.utc)
+    ctx = {"recommended_location_ids": ["a"], "answered_at": "2026-11-15T18:00:00+00:00"}
+    assert pipeline.is_recent(ctx, now)
+    assert not pipeline.is_recent({**ctx, "answered_at": "2026-11-14T18:00:00+00:00"}, now)
+    assert not pipeline.is_recent({"answered_at": "2026-11-15T18:00:00+00:00"}, now)
+    assert not pipeline.is_recent({**ctx, "answered_at": "garbage"}, now)
+
+
+def test_update_reanswers_at_saved_place_without_asking(env, monkeypatch):
+    store, calls = env
+    p = prof()
+    ctx = _answered(env, p)
+    monkeypatch.setattr(pipeline, "_sort", lambda prev, text: "update")
+    seen = {}
+    monkeypatch.setattr(pipeline, "first_aid_reply",
+                        lambda text, pr: seen.setdefault("t", text) and TriageResult(False, "Keep it still.\n\nWhere are you right now?"))
+    out = pipeline.after_answer(msg("it hurts a lot it might be broken"), p, ctx)
+    assert out[0] == "Keep it still."           # no "Where are you" again
+    assert out[1] == "b:True|a:False"           # options at the saved point
+    assert seen["t"] == "think i sprained my ankle. Then: it hurts a lot it might be broken"
+    assert store.get_conversation(p.user_id)[0] == "idle"
+
+
+def test_update_never_steps_down_a_level(env, monkeypatch):
+    store, calls = env
+    p = prof()
+    ctx = {**_answered(env, p), "last_level_of_care": "er"}
+    monkeypatch.setattr(pipeline, "_sort", lambda prev, text: "update")
+    calls["find"].clear()
+    pipeline.after_answer(msg("it's a bit better actually but still swollen"), p, ctx)
+    assert calls["find"][0][0] == CareLevel.ER
+
+
+def test_update_red_flag_returns_emergency(env, monkeypatch):
+    store, _ = env
+    p = prof()
+    ctx = _answered(env, p)
+    monkeypatch.setattr(pipeline, "_sort", lambda prev, text: "update")
+    monkeypatch.setattr(pipeline, "first_aid_reply", lambda text, pr: TriageResult(True, "Call 911"))
+    assert pipeline.after_answer(msg("bone is sticking out"), p, ctx) == ["Call 911"]
+
+
+def test_directions_from_database(env, monkeypatch):
+    p = prof()
+    ctx = _answered(env, p)
+    monkeypatch.setattr(pipeline, "_sort", lambda prev, text: "directions")
+    monkeypatch.setattr(pipeline, "_locations_by_id", lambda ids: [
+        {"id": "b", "name": "Clinic B", "address": "4085 Governor Dr, San Diego, CA 92122"}])
+    out = pipeline.after_answer(msg("how do i get there"), p, ctx)
+    assert "Clinic B" in out[0]
+    assert "https://maps.apple.com/?daddr=4085+Governor+Dr%2C+San+Diego%2C+CA+92122" in out[0]
+
+
+def test_new_question_and_other(env, monkeypatch):
+    p = prof()
+    ctx = _answered(env, p)
+    monkeypatch.setattr(pipeline, "_sort", lambda prev, text: "new")
+    assert pipeline.after_answer(msg("my kid has a fever"), p, ctx) is None
+    monkeypatch.setattr(pipeline, "_sort", lambda prev, text: "other")
+    assert "DIRECTIONS" in pipeline.after_answer(msg("thanks"), p, ctx)[0]
+
+
+def test_sort_falls_back_to_update_when_gemini_fails(monkeypatch):
+    monkeypatch.setattr(pipeline, "generate_json", lambda **kw: (_ for _ in ()).throw(GeminiError("503")))
+    assert pipeline._sort("ankle", "it hurts more") == "update"
