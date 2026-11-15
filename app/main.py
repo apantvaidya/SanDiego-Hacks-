@@ -28,6 +28,10 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(title="Care Navigator", lifespan=lifespan)
 
+from app.signup import router as signup_router  # noqa: E402  GET/POST /start
+
+app.include_router(signup_router)
+
 
 @app.get("/health")
 def health() -> dict:

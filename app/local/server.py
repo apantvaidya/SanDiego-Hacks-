@@ -109,6 +109,9 @@ def handle(phone: str, text: str, image: bytes | None = None) -> list[str]:
 def create_app() -> FastAPI:
     install_media_hook()
     app = FastAPI(title="Care Navigator (local)")
+    from app.signup import router as signup_router
+
+    app.include_router(signup_router)  # /start signup page
 
     @app.get("/", response_class=HTMLResponse)
     def page() -> str:
