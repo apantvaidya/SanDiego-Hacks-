@@ -4,15 +4,15 @@
     generate_text(prompt, system=None) -> str
 
 * Model: GEMINI_MODEL, then one retry on GEMINI_FALLBACK_MODEL (default gemini-3.5-flash).
+  Measured Nov 15 00:30 PT: gemini-flash-latest, 3.7 and 3.8 Flash timed out at 30 s (503
+  "high demand"); gemini-3.5-flash answered in 5 to 8 s; gemini-3.5-flash-lite in under 1 s.
+  Recommended .env: GEMINI_MODEL=gemini-3.5-flash-lite. Retrying the same overloaded model
+  does not help, so the retry goes to the other model.
 * Free tier quota is 20 requests per day **per model** (429 RESOURCE_EXHAUSTED, measured Nov 15
   01:10 PT). A model that returns 429 is skipped for the rest of the process, and after a quota
   error the call spills over to GEMINI_QUOTA_SPILLOVER_MODELS (comma-separated; default
   gemini-3.6-flash, gemini-3.1-flash-lite), each with its own daily quota. Enabling billing on
   the Cloud project removes the limit.
-  Measured Nov 15 00:30 PT: gemini-flash-latest, 3.7 and 3.8 Flash timed out at 30 s (503
-  "high demand"); gemini-3.5-flash answered in 5 to 8 s; gemini-3.5-flash-lite in under 1 s.
-  Recommended .env: GEMINI_MODEL=gemini-3.5-flash-lite. Retrying the same overloaded model
-  does not help, so the retry goes to the other model.
 * Called on the v1beta API: the "-latest" aliases are not served on v1.
 * `schema` is a plain JSON Schema dict ({"type": "object", "properties": ...}). Gemini is
   constrained to it, and the parsed dict is returned.
