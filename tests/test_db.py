@@ -105,8 +105,11 @@ def test_candidates_kaiser_ankle_near_ucsd():
 
 
 def test_candidates_medi_cal_ankle_near_ucsd():
-    ids = {r["id"] for r in _candidates("chg_medi_cal", "medi_cal", ["urgent_care", "fqhc"])}
-    assert {"urgent_care_and_more_midway", "fhcsd_logan_heights"} <= ids
+    rows = _candidates("chg_medi_cal", "medi_cal", ["urgent_care", "fqhc"])
+    ids = {r["id"] for r in rows}
+    # The #11 import adds dozens of CHG sites, so the 10 nearest no longer include a fixed seed.
+    assert "urgent_care_and_more_midway" in ids
+    assert {r["kind"] for r in rows} == {"urgent_care", "fqhc"}
     with get_conn() as conn:
         accepts = conn.execute("SELECT id, accepts FROM locations WHERE id = ANY(%s)", (list(ids),)).fetchall()
     assert all("chg_medi_cal" in r["accepts"] for r in accepts)  # CHG network only

@@ -1,82 +1,107 @@
-"""Tests for #11 CHG FHIR import: parsing is pure; fetch is tested with fakes (no network)."""
-from crawler import chg_fhir
-from crawler.chg_fhir import _street_for_geocoding, address_key, fetch_chg_locations, parse_hours, stable_id
-from app.models import GeoPoint
+from crawler.chg_fhir import (
+    address_text,
+    hours_from_available_time,
+    hours_from_location,
+    in_san_diego_county,
+    is_medi_cal,
+    phone_from,
+    row_id,
+    stable_id,
+)
+
+EXT = "http://hl7.org/fhir/us/davinci-pdex-plan-net/StructureDefinition/contactpoint-availabletime"
 
 
-def test_parse_hours_weekdays_and_weekend():
-    hours = parse_hours([
-        {"daysOfWeek": ["mon", "tue", "wed", "thu", "fri"], "allDay": False,
-         "openingTime": "08:00:00", "closingTime": "20:00:00"},
-        {"daysOfWeek": ["sun"], "allDay": False, "openingTime": "08:00:00", "closingTime": "18:00:00"},
-    ])
-    assert hours["mon"] == [["08:00", "20:00"]]
-    assert hours["sun"] == [["08:00", "18:00"]]
-    assert "sat" not in hours
+def avail(days, start=None, end=None, all_day=False):
+    parts = [{"url": "daysOfWeek", "valueCode": d} for d in days]
+    parts.append({"url": "allDay", "valueBoolean": all_day})
+    if start:
+        parts.append({"url": "availableStartTime", "valueTime": start})
+    if end:
+        parts.append({"url": "availableEndTime", "valueTime": end})
+    return {"url": EXT, "extension": parts}
 
 
-def test_parse_hours_all_day_midnight_and_overnight():
-    assert parse_hours([{"daysOfWeek": ["mon"], "allDay": True}]) == {"mon": [["00:00", "24:00"]]}
-    assert parse_hours([{"daysOfWeek": ["tue"], "openingTime": "08:00:00", "closingTime": "00:00:00"}]) == \
-        {"tue": [["08:00", "24:00"]]}
-    assert parse_hours([{"daysOfWeek": ["sun"], "openingTime": "22:00:00", "closingTime": "02:00:00"}]) == \
-        {"mon": [["00:00", "02:00"]], "sun": [["22:00", "24:00"]]}
+def test_hours_from_available_time_weekday_and_weekend():
+    telecom = [
+        {"system": "url", "value": "www.example.com"},
+        {
+            "system": "phone",
+            "value": "(619)-591-9999",
+            "extension": [
+                avail(["sun"], "10:00:00", "18:00:00"),
+                avail(["mon", "tue", "wed", "thu", "fri"], "09:00:00", "20:00:00"),
+                avail(["sat"], "10:00:00", "18:00:00"),
+            ],
+        },
+    ]
+    hours = hours_from_available_time(telecom)
+    assert hours["mon"] == [["09:00", "20:00"]]
+    assert hours["sun"] == [["10:00", "18:00"]]
+    assert list(hours) == ["mon", "tue", "wed", "thu", "fri", "sat", "sun"]
 
 
-def test_parse_hours_dedupes_and_skips_incomplete():
-    span = {"daysOfWeek": ["mon"], "openingTime": "09:00:00", "closingTime": "14:00:00"}
-    assert parse_hours([span, span, {"daysOfWeek": ["tue"]}]) == {"mon": [["09:00", "14:00"]]}
+def test_hours_all_day_overnight_midnight_and_dedupe():
+    telecom = [
+        {"system": "phone", "extension": [avail(["mon"], all_day=True)]},
+        {"system": "fax", "extension": [avail(["mon"], all_day=True)]},  # duplicate on another telecom
+        {"system": "phone", "extension": [avail(["fri"], "22:00:00", "02:00:00")]},
+        {"system": "phone", "extension": [avail(["sat"], "08:00:00", "00:00:00")]},
+    ]
+    hours = hours_from_available_time(telecom)
+    assert hours["mon"] == [["00:00", "24:00"]]
+    assert hours["fri"] == [["22:00", "24:00"]]
+    assert hours["sat"] == [["00:00", "02:00"], ["08:00", "24:00"]]
 
 
-def test_hours_from_telecom_extension():
-    loc = {"telecom": [{"system": "phone", "value": "(619)-225-6200", "rank": 1, "extension": [{
-        "url": "http://hl7.org/fhir/us/davinci-pdex-plan-net/StructureDefinition/contactpoint-availabletime",
-        "extension": [{"url": "daysOfWeek", "valueCode": "sat"}, {"url": "allDay", "valueBoolean": False},
-                      {"url": "availableStartTime", "valueTime": "09:00:00"},
-                      {"url": "availableEndTime", "valueTime": "14:00:00"}]}]}]}
-    assert chg_fhir._hours_from(loc) == {"sat": [["09:00", "14:00"]]}
+def test_hours_from_location():
+    loc = {"hoursOfOperation": [{"daysOfWeek": ["mon", "tue"], "openingTime": "08:00:00", "closingTime": "17:00:00"}]}
+    assert hours_from_location(loc) == {"mon": [["08:00", "17:00"]], "tue": [["08:00", "17:00"]]}
+    assert hours_from_location({}) == {}
 
 
-def test_address_key_matches_suite_and_suffix_variants():
-    assert address_key("3434 Midway Dr Ste 1002, San Diego, CA 92110") == \
-        address_key("3434 Midway Drive, San Diego, CA 92110")
-    assert address_key("8260 Mira Mesa Blvd Suite A, San Diego, CA 92126") == "8260 mira 92126"
-    assert address_key("1 Main St, El Cajon, CA 92020") != address_key("1 Main St, Escondido, CA 92025")
+def test_network_and_county_filters():
+    assert is_medi_cal("CHGM4343121")
+    assert not is_medi_cal("CHGC5818385") and not is_medi_cal("CHGD5818385")
+    assert in_san_diego_county("92020") and in_san_diego_county("91910") and in_san_diego_county("92103-1234")
+    assert not in_san_diego_county("92201") and not in_san_diego_county("90012") and not in_san_diego_county(None)
 
 
-def test_street_for_geocoding_drops_suite():
-    assert _street_for_geocoding("3434 Midway Dr Ste 1002, San Diego, CA 92110") == "3434 Midway Dr, San Diego, CA 92110"
-    assert _street_for_geocoding("8260 Mira Mesa Blvd Suite A, San Diego") == "8260 Mira Mesa Blvd, San Diego"
-
-
-def test_stable_id():
+def test_row_id_address_phone():
+    assert row_id("urgent_care", "Location/CHG5064068") == "chg_5064068"
     assert stable_id("CHG5064112") == "chg_5064112"
+    loc = {"address": {"line": ["133 W Main St", "Ste 100"], "city": "El Cajon", "state": "CA", "postalCode": "92020"}}
+    assert address_text(loc) == "133 W Main St, Ste 100, El Cajon, CA 92020"
+    assert address_text({"address": {"text": "1 A St, San Diego, CA, 92101, US"}}) == "1 A St, San Diego, CA, 92101"
+    assert phone_from([{"system": "email", "value": "x@y.com"}, {"system": "phone", "value": "619"}]) == "619"
+    assert phone_from([{"system": "email", "value": "x@y.com"}]) is None
 
 
-def test_fetch_builds_rows_dedupes_and_skips_unplaced(monkeypatch):
-    services = {"entry": [
-        {"resource": {"location": [{"reference": "Location/CHG1"}]}},
-        {"resource": {"location": [{"reference": "Location/CHG2"}, {"reference": "Location/CHG3"}]}},
-    ]}
-    locations = {
-        "CHG1": {"name": "MARQUE URGENT CARE", "address": {"line": ["4085 Governor Dr"], "city": "San Diego",
-                 "postalCode": "92122"}, "telecom": [{"system": "phone", "value": "(858) 555-0100", "rank": 1}],
-                 "hoursOfOperation": [{"daysOfWeek": ["sun"], "openingTime": "08:00:00", "closingTime": "18:00:00"}]},
-        "CHG2": {"name": "Same Place", "address": {"line": ["4085 Governor Drive"], "city": "San Diego",
-                 "postalCode": "92122"}},
-        "CHG3": {"name": "Far Away", "address": {"line": ["1 Nowhere Rd"], "city": "Los Angeles", "postalCode": "90001"}},
-    }
+def test_clean_all_day():
+    from crawler.chg_fhir import clean_all_day
 
-    def fake_get(path, params=None):
-        return services if path == "HealthcareService" else locations[path.split("/")[1]]
+    hours = {"mon": [["00:00", "24:00"], ["08:00", "17:00"]], "sat": [["00:00", "24:00"]]}
+    assert clean_all_day(hours) == {"mon": [["08:00", "17:00"]], "sat": [["00:00", "24:00"]]}
+    assert clean_all_day(hours, allow_all_day=False) == {"mon": [["08:00", "17:00"]]}
 
-    monkeypatch.setattr(chg_fhir, "_get", fake_get)
-    monkeypatch.setattr(chg_fhir, "_nominatim",
-                        lambda p: GeoPoint(32.87, -117.21, "x") if "Governor" in p["q"] else None)
-    rows = fetch_chg_locations()
-    assert [r["id"] for r in rows] == ["chg_1"]
-    r = rows[0]
-    assert r["name"] == "Marque Urgent Care" and r["accepts"] == ["chg_medi_cal"] and r["kind"] == "urgent_care"
-    assert r["hours"] == {"sun": [["08:00", "18:00"]]} and r["phone"] == "(858) 555-0100"
-    assert r["has_xray"] is None and r["self_pay_price"] is None
-    assert r["source_url"].endswith("/Location/CHG1")
+
+def test_km():
+    from crawler.chg_fhir import _km
+
+    assert 40 < _km((32.75, -117.16), (33.12, -117.09)) < 45  # Hillcrest to Escondido
+
+
+def test_ordinal_street():
+    from crawler.chg_fhir import ordinal_street
+
+    assert ordinal_street("4094 Fourth Ave") == "4094 4th Avenue"
+    assert ordinal_street("1550 Broadway") == "1550 Broadway"
+
+
+def test_building_key_ignores_floor_and_suite():
+    from crawler.chg_fhir import building_key
+
+    a = building_key("fqhc", "4094 Fourth Ave, San Diego, CA 92103")
+    b = building_key("fqhc", "4094 Fourth Ave, First Floor, San Diego, CA 92103")
+    assert a == b == ("fqhc", "4094 fourth ave 92103")
+    assert building_key("fqhc", "3705 Mission Blvd, San Diego, CA 92109") != building_key("fqhc", "3690 Mission Blvd, San Diego, CA 92109")

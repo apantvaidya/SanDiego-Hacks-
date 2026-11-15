@@ -1,269 +1,513 @@
-"""CHG Medi-Cal network from its public FHIR provider directory API (no login). Owned by #11.
-
-Base: https://api-chgsd-prd.safhir.io/v1/api/provider-directory/  (Da Vinci Plan-Net)
-Rate limit: 1 request per second (the API answers 429 "throttled" faster than that).
-
-What we pull: HealthcareService?service-category=urg (CHG's in-network urgent care
-centers, about 48), then each one's Location for address, phone and hours. Found by
-exploring the API on 2026-11-15:
-  * primary care clinics are listed per practitioner (PractitionerRole), not as services,
-    so they are not pulled here; FHCSD Logan Heights is already seeded with chg_medi_cal.
-  * search "next" links return 403, so we query by category instead of paging everything.
-  * Locations have no coordinates; addresses are geocoded with Nominatim (1 req/s) and
-    rows outside San Diego County or not found are skipped, never placed at a ZIP centroid.
-
-Writing (never at message time; CLAUDE.md "cached in Neon"):
-  * a location already in the table at the same street address gets 'chg_medi_cal'
-    added to accepts (nothing else changes)
-  * new sites are inserted as kind 'urgent_care', id 'chg_<number>', accepts
-    ['chg_medi_cal'], has_xray / walk_in / prices NULL (the directory does not say)
-  * additive only: no deletes, safe to re-run
+"""CHG Medi-Cal network from its public FHIR provider directory API (no login).
 
     uv run python -m crawler.chg_fhir            # fetch + geocode, print, write nothing
-    uv run python -m crawler.chg_fhir --apply    # also write to DATABASE_URL (Neon main)
+    uv run python -m crawler.chg_fhir --apply    # also write to Neon main (or --url <branch>)
+
+API facts (checked Nov 15, 2026):
+- Base https://api-chgsd-prd.safhir.io/v1/api/provider-directory, FHIR R4, Da Vinci Plan-Net 1.2.0.
+- Rate limit: 1 request per second (HTTP 429 / "throttled" with Retry-After).
+- Three networks: Medi-Cal (Organization/MCALNTWK) and two Medicare plans. HealthcareService and
+  affiliation IDs carry the network in their prefix: CHGM = Medi-Cal, CHGC / CHGD = Medicare plans.
+- Hours live on HealthcareService.telecom as Plan-Net contactpoint-availabletime extensions.
+- Location.position is empty, so we geocode addresses (Nominatim, 1 request per second). A street
+  result must land within 8 km of the ZIP's center; sites we can't place are skipped, never put
+  at a ZIP centroid (distances shown to users must be real).
+- There is no FQHC service category. Community health centers are provider groups
+  (Organization type prvgrp), so we look them up by name and take their Medi-Cal sites.
+
+What gets loaded:
+- urgent_care: HealthcareService category "urg" in the Medi-Cal network (walk_in = true).
+- lab: HealthcareService category "lab" (clinical laboratory) in the Medi-Cal network.
+- fqhc: Medi-Cal sites of the community health centers in FQHC_ORGS.
+Only San Diego County ZIPs (919xx to 921xx) are kept. Staff emails in the directory are ignored.
+
+Writes: rows with stable ids `chg_<location number>` (e.g. chg_5064112) and accepts ["chg_medi_cal"]. If an
+existing location (for example a hand seed) is within 75 m, we add "chg_medi_cal" to its
+accepts instead of inserting a duplicate. The responses are cached in crawler/raw/chg/ so a
+re-run doesn't hit the API again (delete the folder to refresh).
+
+Crawl swaps (#13) replace the locations table from a branch: run this loader against the crawl
+branch too (load(conn) takes any connection), or the CHG rows will be dropped by the swap.
 """
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import logging
+import math
 import re
-import sys
 import time
 from datetime import datetime, timezone
+from pathlib import Path
 
 import httpx
+from psycopg.types.json import Jsonb
 
-from app.geo.geocode import _nominatim, in_san_diego_county
+from app.config import settings
 
 log = logging.getLogger(__name__)
 
 BASE = "https://api-chgsd-prd.safhir.io/v1/api/provider-directory"
-MIN_INTERVAL_S = 1.2
-USER_AGENT = "care-navigator-hackathon"
+NOMINATIM = "https://nominatim.openstreetmap.org/search"
+CACHE = Path("crawler/raw/chg")
 PLAN_ID = "chg_medi_cal"
-_DAYS = ["mon", "tue", "wed", "thu", "fri", "sat", "sun"]
+MEDI_CAL_PREFIX = "CHGM"
+AVAILABLE_TIME = "contactpoint-availabletime"
+DAYS = ("mon", "tue", "wed", "thu", "fri", "sat", "sun")
+MATCH_METERS = 75
 
-_last_call = 0.0
+# San Diego County community health centers (FQHCs and look-alikes) to look up by name.
+FQHC_ORGS = [
+    "Family Health Centers of San Diego",
+    "San Ysidro Health",
+    "La Maestra",
+    "Neighborhood Healthcare",
+    "TrueCare",
+    "Vista Community Clinic",
+    "Mountain Health",
+    "San Diego American Indian Health",
+    "Imperial Beach Health Center",
+]
 
 
-def _get(path: str, params: dict | None = None) -> dict:
-    """GET one FHIR resource or search, at most 1 request per second, retrying throttles."""
-    global _last_call
-    last_error: Exception | str | None = None
+# ---------------------------------------------------------------------------
+# HTTP with rate limiting and a disk cache
+# ---------------------------------------------------------------------------
+
+class _Throttle:
+    def __init__(self, interval: float):
+        self.interval = interval
+        self.last = 0.0
+
+    def wait(self) -> None:
+        gap = time.monotonic() - self.last
+        if gap < self.interval:
+            time.sleep(self.interval - gap)
+        self.last = time.monotonic()
+
+
+_fhir_throttle = _Throttle(1.1)
+_geo_throttle = _Throttle(1.1)
+
+
+def _cache_path(url: str) -> Path:
+    return CACHE / (hashlib.sha1(url.encode()).hexdigest() + ".json")
+
+
+def fhir_get(url: str, client: httpx.Client) -> dict:
+    """GET a FHIR URL (absolute or relative to BASE), cached on disk, 1 request per second."""
+    if not url.startswith("http"):
+        url = f"{BASE}/{url}"
+    path = _cache_path(url)
+    if path.exists():
+        return json.loads(path.read_text())
     for attempt in range(5):
-        wait = MIN_INTERVAL_S - (time.monotonic() - _last_call)
-        if wait > 0:
-            time.sleep(wait)
-        try:
-            resp = httpx.get(f"{BASE}/{path}", params=params, timeout=60,
-                             headers={"User-Agent": USER_AGENT, "Accept": "application/fhir+json"})
-            _last_call = time.monotonic()
-            resp.raise_for_status()
-            data = resp.json()
-        except (httpx.HTTPError, ValueError) as e:
-            _last_call = time.monotonic()
-            last_error = e
-            time.sleep(2 * (attempt + 1))
+        _fhir_throttle.wait()
+        resp = client.get(url, headers={"Accept": "application/fhir+json"})
+        throttled = resp.status_code == 429 or '"throttled"' in resp.text[:500]
+        if throttled:
+            time.sleep(float(resp.headers.get("Retry-After", 2)))
             continue
-        if data.get("resourceType") == "OperationOutcome":
-            last_error = json.dumps(data.get("issue"))[:200]
-            time.sleep(2 * (attempt + 1))
-            continue
+        resp.raise_for_status()
+        data = resp.json()
+        CACHE.mkdir(parents=True, exist_ok=True)
+        path.write_text(json.dumps(data))
         return data
-    raise RuntimeError(f"CHG FHIR {path} failed: {last_error}")
+    raise RuntimeError(f"CHG API kept throttling: {url}")
 
 
-# --------------------------------------------------------------------------- parsing
+def fhir_search(query: str, client: httpx.Client, max_pages: int = 20) -> list[dict]:
+    """All resources for a search, following `next` links."""
+    out: list[dict] = []
+    url: str | None = query
+    for _ in range(max_pages):
+        if not url:
+            break
+        try:
+            bundle = fhir_get(url, client)
+        except httpx.HTTPStatusError as exc:
+            # Continuation links sometimes return 403. Keep the pages we already have.
+            if not out:
+                raise
+            log.warning("stopped paging after %s results: %s", len(out), exc.response.status_code)
+            break
+        out.extend(e["resource"] for e in bundle.get("entry", []))
+        url = next((link["url"] for link in bundle.get("link", []) if link["relation"] == "next"), None)
+    return out
 
-def _hhmm(t: str) -> str:
-    return t[:5]
+
+# ---------------------------------------------------------------------------
+# Parsing (pure, unit tested)
+# ---------------------------------------------------------------------------
+
+def _hhmm(value: str) -> str:
+    return value[:5]
 
 
-def parse_hours(hours_of_operation: list[dict] | None) -> dict:
-    """FHIR hoursOfOperation -> {"mon": [["08:00","20:00"]], ...} in our [open, close) format.
-    allDay -> 00:00-24:00; a 00:00 close -> 24:00; a close before the open is split across
-    midnight into the next day."""
-    out: dict[str, list[list[str]]] = {}
-    for h in hours_of_operation or []:
-        days = [d for d in h.get("daysOfWeek", []) if d in _DAYS]
-        if h.get("allDay"):
-            spans_by_day = {d: [["00:00", "24:00"]] for d in days}
-        else:
-            if not h.get("openingTime") or not h.get("closingTime"):
+def _add_span(hours: dict, day: str, start: str, end: str) -> None:
+    if end == "00:00":
+        end = "24:00"
+    if end <= start and end != "24:00":
+        # Overnight: split across two days.
+        nxt = DAYS[(DAYS.index(day) + 1) % 7]
+        hours.setdefault(day, []).append([start, "24:00"])
+        hours.setdefault(nxt, []).append(["00:00", end])
+    else:
+        hours.setdefault(day, []).append([start, end])
+
+
+def clean_all_day(hours: dict, allow_all_day: bool = True) -> dict:
+    """Directory records often attach a 24/7 phone line (nurse line, answering service) next to
+    the real clinic hours. Drop an all-day span when the same day has real hours, and drop all
+    all-day spans when the site type is never open 24/7 (clinics, labs)."""
+    out = {}
+    for day, spans in hours.items():
+        real = [s for s in spans if s != ["00:00", "24:00"]]
+        keep = real if (real or not allow_all_day) else spans
+        if keep:
+            out[day] = keep
+    return out
+
+
+def hours_from_available_time(telecoms: list[dict]) -> dict:
+    """Plan-Net contactpoint-availabletime extensions -> {"mon": [["08:00","20:00"]], ...}."""
+    hours: dict[str, list[list[str]]] = {}
+    seen: set[tuple] = set()
+    for telecom in telecoms or []:
+        for ext in telecom.get("extension", []):
+            if not ext.get("url", "").endswith(AVAILABLE_TIME):
                 continue
-            open_t, close_t = _hhmm(h["openingTime"]), _hhmm(h["closingTime"])
-            spans_by_day = {}
-            for d in days:
-                if close_t == "00:00":
-                    spans_by_day.setdefault(d, []).append([open_t, "24:00"])
-                elif close_t <= open_t:
-                    nxt = _DAYS[(_DAYS.index(d) + 1) % 7]
-                    spans_by_day.setdefault(d, []).append([open_t, "24:00"])
-                    spans_by_day.setdefault(nxt, []).append(["00:00", close_t])
-                else:
-                    spans_by_day.setdefault(d, []).append([open_t, close_t])
-        for d, spans in spans_by_day.items():
-            for span in spans:
-                if span not in out.setdefault(d, []):
-                    out[d].append(span)
-    return {d: sorted(out[d]) for d in _DAYS if d in out}
-
-
-def _phone(telecom: list[dict] | None) -> str | None:
-    phones = sorted((t for t in telecom or [] if t.get("system") == "phone"), key=lambda t: t.get("rank", 99))
-    return phones[0]["value"] if phones else None
-
-
-def _hours_from(loc: dict) -> dict:
-    """Location.hoursOfOperation, else the plan-net availableTime extension on the main phone."""
-    hours = parse_hours(loc.get("hoursOfOperation"))
-    if hours:
-        return hours
-    for t in sorted(loc.get("telecom") or [], key=lambda t: t.get("rank", 99)):
-        spans = []
-        for ext in t.get("extension", []):
-            if not ext.get("url", "").endswith("contactpoint-availabletime"):
-                continue
-            item: dict = {"daysOfWeek": []}
-            for sub in ext.get("extension", []):
-                key, val = sub.get("url"), next((v for k, v in sub.items() if k.startswith("value")), None)
+            days, all_day, start, end = [], False, None, None
+            for part in ext.get("extension", []):
+                key = part.get("url")
                 if key == "daysOfWeek":
-                    item["daysOfWeek"].append(val)
+                    days.append(part["valueCode"])
                 elif key == "allDay":
-                    item["allDay"] = val
+                    all_day = bool(part.get("valueBoolean"))
                 elif key == "availableStartTime":
-                    item["openingTime"] = val
+                    start = _hhmm(part["valueTime"])
                 elif key == "availableEndTime":
-                    item["closingTime"] = val
-            spans.append(item)
-        if spans:
-            return parse_hours(spans)
-    return {}
+                    end = _hhmm(part["valueTime"])
+            for day in days:
+                span = ("00:00", "24:00") if all_day else (start, end)
+                if day not in DAYS or None in span or (day, span) in seen:
+                    continue
+                seen.add((day, span))
+                _add_span(hours, day, *span)
+    return {d: sorted(hours[d]) for d in DAYS if d in hours}
 
 
-def _address(loc: dict) -> tuple[str, str | None]:
-    a = loc.get("address") or {}
-    line = " ".join(a.get("line") or [])
-    city, state, zip_ = a.get("city"), a.get("state") or "CA", (a.get("postalCode") or "")[:5]
-    return f"{line}, {city}, {state} {zip_}".strip(", "), zip_ or None
+def hours_from_location(location: dict) -> dict:
+    """Standard FHIR Location.hoursOfOperation -> our hours format."""
+    hours: dict[str, list[list[str]]] = {}
+    for block in location.get("hoursOfOperation", []) or []:
+        span = ("00:00", "24:00") if block.get("allDay") else (
+            _hhmm(block.get("openingTime", "")), _hhmm(block.get("closingTime", ""))
+        )
+        if not all(span):
+            continue
+        for day in block.get("daysOfWeek", []):
+            if day in DAYS:
+                _add_span(hours, day, *span)
+    return {d: sorted(hours[d]) for d in DAYS if d in hours}
 
 
-def _street_for_geocoding(full: str) -> str:
-    # Nominatim does not know suite numbers: "3434 Midway Dr Ste 1002" -> "3434 Midway Dr"
-    return re.sub(r"\s+(ste|suite|unit|#|bldg|building|apt|rm|room)\.?\s*[\w-]+", "", full, flags=re.IGNORECASE)
+def is_medi_cal(resource_id: str) -> bool:
+    return resource_id.startswith(MEDI_CAL_PREFIX)
 
 
-def address_key(address: str) -> str:
-    """Street number + first street word + ZIP, lowercase: matches '3434 Midway Dr Ste 1002,
-    San Diego, CA 92110' with '3434 Midway Drive, San Diego, CA 92110'."""
-    a = address.lower()
-    m = re.match(r"\s*(\d+)\s+([a-z0-9]+)", a)
-    z = re.search(r"\b(9[12]\d{3})\b", a)
-    return f"{m.group(1)} {m.group(2)} {z.group(1) if z else ''}".strip() if m else a
+def in_san_diego_county(postal_code: str | None) -> bool:
+    return bool(postal_code) and bool(re.match(r"^9(19|20|21)\d{2}", postal_code))
+
+
+def phone_from(telecoms: list[dict]) -> str | None:
+    for t in telecoms or []:
+        if t.get("system") == "phone" and t.get("value"):
+            return t["value"]
+    return None
+
+
+def address_text(location: dict) -> str:
+    a = location.get("address") or {}
+    if a.get("line"):
+        parts = [", ".join(a["line"]), a.get("city"), f"{a.get('state', '')} {a.get('postalCode', '')}".strip()]
+        return ", ".join(p for p in parts if p)
+    return (a.get("text") or "").replace(", US", "")
+
+
+def building_key(kind: str, address: str) -> tuple[str, str]:
+    """('fqhc', '4094 Fourth Ave, First Floor, San Diego, CA 92103') -> ('fqhc', '4094 fourth ave 92103')."""
+    street = re.sub(r"\W+", " ", address.split(",")[0].lower()).strip()
+    zip_match = re.search(r"\b(9\d{4})\b", address)
+    return kind, f"{street} {zip_match.group(1) if zip_match else ''}".strip()
 
 
 def stable_id(fhir_id: str) -> str:
-    """'CHG5064112' -> 'chg_5064112'. Stable across re-imports."""
-    return "chg_" + re.sub(r"^chg", "", fhir_id.lower())
+    """'CHG5064112' or 'Location/CHG5064112' -> 'chg_5064112'. Stable across re-imports."""
+    return "chg_" + re.sub(r"\D", "", fhir_id.split("/")[-1])
 
 
-def _title(name: str) -> str:
-    return name.title() if name.isupper() else name
+def row_id(kind: str, location_ref: str) -> str:
+    """One row per CHG Location; the first kind seen wins (urgent care, then lab, then clinic)."""
+    return stable_id(location_ref)
 
 
-# --------------------------------------------------------------------------- public
+# ---------------------------------------------------------------------------
+# Geocoding
+# ---------------------------------------------------------------------------
 
-def fetch_chg_locations(geocode: bool = True) -> list[dict]:
-    """CHG in-network urgent care sites as `locations` rows (dicts with the table's columns,
-    plus lat/lon). Skips sites that cannot be geocoded inside San Diego County."""
-    services = _get("HealthcareService", {"service-category": "urg", "_count": 500}).get("entry", [])
-    loc_ids = []
-    for e in services:
-        for ref in e["resource"].get("location", []):
-            lid = ref.get("reference", "").split("/")[-1]
-            if lid and lid not in loc_ids:
-                loc_ids.append(lid)
-    log.info("CHG: %d urgent care services, %d locations", len(services), len(loc_ids))
+def _nominatim(params: dict, client: httpx.Client) -> tuple[float, float] | None:
+    params = {**params, "format": "json", "limit": 1, "countrycodes": "us"}
+    path = _cache_path("geo:" + json.dumps(params, sort_keys=True))
+    if path.exists():
+        result = json.loads(path.read_text())
+    else:
+        _geo_throttle.wait()
+        resp = client.get(NOMINATIM, params=params, headers={"User-Agent": settings.nominatim_user_agent})
+        resp.raise_for_status()
+        result = resp.json()
+        CACHE.mkdir(parents=True, exist_ok=True)
+        path.write_text(json.dumps(result))
+    return (float(result[0]["lat"]), float(result[0]["lon"])) if result else None
 
+
+def _km(a: tuple[float, float], b: tuple[float, float]) -> float:
+    lat1, lon1, lat2, lon2 = map(math.radians, (*a, *b))
+    h = math.sin((lat2 - lat1) / 2) ** 2 + math.cos(lat1) * math.cos(lat2) * math.sin((lon2 - lon1) / 2) ** 2
+    return 12742 * math.asin(math.sqrt(h))
+
+
+MAX_KM_FROM_ZIP = 8.0
+
+_ORDINALS = {
+    "first": "1st", "second": "2nd", "third": "3rd", "fourth": "4th", "fifth": "5th", "sixth": "6th",
+    "seventh": "7th", "eighth": "8th", "ninth": "9th", "tenth": "10th", "eleventh": "11th", "twelfth": "12th",
+}
+
+
+def ordinal_street(street: str) -> str:
+    """'4094 Fourth Ave' -> '4094 4th Avenue' (OpenStreetMap's spelling)."""
+    out = re.sub(r"\b(" + "|".join(_ORDINALS) + r")\b", lambda m: _ORDINALS[m.group(1).lower()], street, flags=re.I)
+    return re.sub(r"\bAve\b\.?", "Avenue", out)
+
+
+_zip_cache: dict[str, tuple[float, float] | None] = {}
+
+
+def zip_center(zip_code: str, client: httpx.Client) -> tuple[float, float] | None:
+    """ZIP center from sd_places (seeded ZIP rows), else Nominatim."""
+    if zip_code in _zip_cache:
+        return _zip_cache[zip_code]
+    point = None
+    try:
+        from app.db import get_conn
+
+        with get_conn() as conn:
+            row = conn.execute(
+                "SELECT lat, lon FROM sd_places WHERE name = %s OR %s = ANY(aliases) LIMIT 1",
+                (zip_code, zip_code),
+            ).fetchone()
+        if row:
+            point = (row["lat"], row["lon"])
+    except Exception:
+        log.debug("sd_places lookup failed for %s", zip_code)
+    if point is None:
+        point = _nominatim({"postalcode": zip_code, "country": "United States"}, client)
+    _zip_cache[zip_code] = point
+    return point
+
+
+def geocode(location: dict, client: httpx.Client) -> tuple[float, float] | None:
+    """Street-level Nominatim result, accepted only if it lands within 8 km of the ZIP's center
+    (a "4094 Fourth Ave" lookup once landed on a Fourth Ave in Escondido). Tries the street as
+    written and with numbered ordinals, structured and free text. None if nothing passes.
+    Cached on disk."""
+    a = location.get("address") or {}
+    street = (a.get("line") or [""])[0]
+    city, zip_code = a.get("city", ""), (a.get("postalCode") or "")[:5]
+    center = zip_center(zip_code, client) if zip_code else None
+    if street:
+        variants = [street] + ([ordinal_street(street)] if ordinal_street(street) != street else [])
+        for st in variants:
+            for params in (
+                {"street": st, "city": city, "postalcode": zip_code, "state": "CA"},
+                {"q": f"{st}, {city}, CA {zip_code}"},
+            ):
+                point = _nominatim(params, client)
+                if point and (center is None or _km(point, center) <= MAX_KM_FROM_ZIP):
+                    return point
+    return None  # never a ZIP centroid: the distance we text people must be real
+
+
+# ---------------------------------------------------------------------------
+# Fetch
+# ---------------------------------------------------------------------------
+
+def _row(kind: str, location_ref: str, location: dict, name: str, hours: dict, phone: str | None,
+         coords: tuple[float, float], walk_in: bool | None) -> dict:
+    return {
+        "id": row_id(kind, location_ref),
+        "name": name,
+        "kind": kind,
+        "lat": coords[0],
+        "lon": coords[1],
+        "address": address_text(location),
+        "phone": phone,
+        "hours": hours,
+        "has_xray": None,
+        "walk_in": walk_in,
+        "accepts": [PLAN_ID],
+        "source_url": f"{BASE}/{location_ref}",
+    }
+
+
+def _title(text: str) -> str:
+    return text.title() if text.isupper() else text
+
+
+def fetch_chg_locations(client: httpx.Client | None = None) -> list[dict]:
+    """Medi-Cal network urgent cares, labs, and community health center sites in San Diego County,
+    as dicts shaped like `locations` rows (lat/lon instead of geom)."""
+    own = client is None
+    client = client or httpx.Client(timeout=40.0)
+    rows: dict[str, dict] = {}
+    try:
+        # Urgent cares and labs from HealthcareService.
+        for category, kind, walk_in in (("urg", "urgent_care", True), ("lab", "lab", None)):
+            services = fhir_search(f"HealthcareService?service-category={category}&_count=100", client)
+            for svc in services:
+                if not is_medi_cal(svc["id"]) or not svc.get("location"):
+                    continue
+                ref = svc["location"][0]["reference"]
+                rid = row_id(kind, ref)
+                if rid in rows:
+                    continue
+                loc = fhir_get(ref, client)
+                if not in_san_diego_county((loc.get("address") or {}).get("postalCode")):
+                    continue
+                coords = geocode(loc, client)
+                if not coords:
+                    log.warning("no coordinates for %s", ref)
+                    continue
+                org_name = loc.get("name") or svc.get("name") or kind
+                label = "Urgent Care" if kind == "urgent_care" else "Lab"
+                name = _title(org_name) if label.lower() in org_name.lower() else f"{_title(org_name)} {label}"
+                hours = clean_all_day(hours_from_available_time(svc.get("telecom", [])), allow_all_day=(kind == "urgent_care"))
+                rows[rid] = _row(kind, ref, loc, name, hours,
+                                 phone_from(svc.get("telecom", [])) or phone_from(loc.get("telecom", [])),
+                                 coords, walk_in)
+
+        # Community health centers: provider groups looked up by name, Medi-Cal sites only.
+        for org_name in FQHC_ORGS:
+            orgs = fhir_search(f"Organization?name={org_name}&_count=20", client, max_pages=1)
+            for org in orgs:
+                affs = fhir_search(
+                    f"OrganizationAffiliation?participating-organization=Organization/{org['id']}"
+                    f"&network=Organization/MCALNTWK&_count=100",
+                    client,
+                    max_pages=5,
+                )
+                hours_by_loc: dict[str, dict] = {}
+                for aff in affs:
+                    for loc_ref in (l["reference"] for l in aff.get("location", [])):
+                        h = hours_from_available_time(aff.get("telecom", []))
+                        if h and loc_ref not in hours_by_loc:
+                            hours_by_loc[loc_ref] = h
+                        hours_by_loc.setdefault(loc_ref, {})
+                for ref, hours in hours_by_loc.items():
+                    rid = row_id("fqhc", ref)
+                    if rid in rows:
+                        continue
+                    loc = fhir_get(ref, client)
+                    if not in_san_diego_county((loc.get("address") or {}).get("postalCode")):
+                        continue
+                    hours = clean_all_day(hours or hours_from_location(loc), allow_all_day=False)
+                    if not hours:
+                        continue  # no hours means we can never say "open now"
+                    coords = geocode(loc, client)
+                    if not coords:
+                        continue
+                    site = loc.get("name") or ""
+                    name = _title(org["name"])
+                    if site and site.lower() not in name.lower() and not re.search(r",\s*(md|do|np|pa)\b", site, re.I):
+                        name = f"{name}, {_title(site)}"
+                    rows[rid] = _row("fqhc", ref, loc, name, hours, phone_from(loc.get("telecom", [])),
+                                     coords, None)
+    finally:
+        if own:
+            client.close()
+    # One row per kind and building: departments and floors at one address are listed separately.
+    unique: dict[tuple[str, str], dict] = {}
+    for r in rows.values():
+        unique.setdefault(building_key(r["kind"], r["address"]), r)
+    return list(unique.values())
+
+
+# ---------------------------------------------------------------------------
+# Load
+# ---------------------------------------------------------------------------
+
+def load(rows: list[dict], conn) -> dict:
+    """Upsert CHG rows. If an existing non-CHG location is within 75 m, tag it with chg_medi_cal
+    instead of inserting a duplicate. Returns counts."""
     now = datetime.now(timezone.utc)
-    rows, seen_keys = [], set()
-    for lid in loc_ids:
-        loc = _get(f"Location/{lid}")
-        address, _zip = _address(loc)
-        key = address_key(address)
-        if key in seen_keys:  # same site listed under several ids
-            continue
-        seen_keys.add(key)
-        row = {
-            "id": stable_id(lid), "fhir_id": lid, "name": _title(loc.get("name") or "Urgent Care"),
-            "kind": "urgent_care", "address": address, "phone": _phone(loc.get("telecom")),
-            "hours": _hours_from(loc), "has_xray": None, "walk_in": None, "accepts": [PLAN_ID],
-            "self_pay_price": None, "sliding_scale": None,
-            "source_url": f"{BASE}/Location/{lid}", "crawled_at": now, "lat": None, "lon": None,
-        }
-        if geocode:
-            point = _nominatim({"q": _street_for_geocoding(address)})
-            if point is None or not in_san_diego_county(point.lat, point.lon):
-                log.warning("CHG: could not place %s (%s); skipped", row["name"], address)
-                continue
-            row["lat"], row["lon"] = point.lat, point.lon
-        rows.append(row)
-    return rows
-
-
-def apply(rows: list[dict], url: str | None = None) -> dict:
-    """Write rows to Neon (main unless url is a branch). Existing site at the same address:
-    add chg_medi_cal to accepts. New site: insert. Returns counts."""
-    from psycopg.types.json import Jsonb
-
-    from app.db import get_conn
-
-    counts = {"matched": 0, "inserted": 0, "updated": 0}
-    with get_conn(url) as conn:
-        existing = conn.execute("SELECT id, address, accepts FROM locations").fetchall()
-        by_key = {address_key(r["address"]): r for r in existing}
-        for row in rows:
-            match = by_key.get(address_key(row["address"]))
-            if match and match["id"] != row["id"]:
-                if PLAN_ID not in (match["accepts"] or []):
-                    conn.execute("UPDATE locations SET accepts = accepts || %s::jsonb WHERE id = %s",
-                                 (Jsonb([PLAN_ID]), match["id"]))
-                counts["matched"] += 1
-                continue
+    counts = {"inserted_or_updated": 0, "tagged_existing": 0}
+    for r in rows:
+        match = conn.execute(
+            """SELECT id FROM locations
+                WHERE id NOT LIKE 'chg\\_%%'
+                  AND ST_DWithin(geom, ST_MakePoint(%(lon)s, %(lat)s)::geography, %(m)s)
+                ORDER BY ST_Distance(geom, ST_MakePoint(%(lon)s, %(lat)s)::geography)
+                LIMIT 1""",
+            {"lon": r["lon"], "lat": r["lat"], "m": MATCH_METERS},
+        ).fetchone()
+        if match:
             conn.execute(
-                """INSERT INTO locations (id, name, kind, geom, address, phone, hours, has_xray, walk_in,
-                                          accepts, self_pay_price, sliding_scale, source_url, crawled_at)
-                   VALUES (%(id)s, %(name)s, %(kind)s,
-                           ST_SetSRID(ST_MakePoint(%(lon)s, %(lat)s), 4326)::geography,
-                           %(address)s, %(phone)s, %(hours)s, NULL, NULL, %(accepts)s, NULL, NULL,
-                           %(source_url)s, %(crawled_at)s)
-                   ON CONFLICT (id) DO UPDATE SET
-                     name = EXCLUDED.name, geom = EXCLUDED.geom, address = EXCLUDED.address,
-                     phone = EXCLUDED.phone, hours = EXCLUDED.hours, source_url = EXCLUDED.source_url,
-                     crawled_at = EXCLUDED.crawled_at,
-                     accepts = (SELECT jsonb_agg(DISTINCT v) FROM jsonb_array_elements(locations.accepts || EXCLUDED.accepts) v)""",
-                {**row, "hours": Jsonb(row["hours"]), "accepts": Jsonb(row["accepts"])},
+                """UPDATE locations
+                      SET accepts = CASE WHEN accepts ? %s THEN accepts ELSE accepts || to_jsonb(%s::text) END
+                    WHERE id = %s""",
+                (PLAN_ID, PLAN_ID, match["id"]),
             )
-            counts["updated" if row["id"] in {r["id"] for r in existing} else "inserted"] += 1
+            counts["tagged_existing"] += 1
+            continue
+        conn.execute(
+            """INSERT INTO locations (id, name, kind, geom, address, phone, hours, has_xray, walk_in,
+                                      accepts, source_url, crawled_at)
+               VALUES (%(id)s, %(name)s, %(kind)s, ST_MakePoint(%(lon)s, %(lat)s)::geography, %(address)s,
+                       %(phone)s, %(hours)s, %(has_xray)s, %(walk_in)s, %(accepts)s, %(source_url)s, %(now)s)
+               ON CONFLICT (id) DO UPDATE SET
+                 name = EXCLUDED.name, kind = EXCLUDED.kind, geom = EXCLUDED.geom, address = EXCLUDED.address,
+                 phone = EXCLUDED.phone, hours = EXCLUDED.hours, walk_in = EXCLUDED.walk_in,
+                 accepts = EXCLUDED.accepts, source_url = EXCLUDED.source_url, crawled_at = EXCLUDED.crawled_at""",
+            {**r, "hours": Jsonb(r["hours"]), "accepts": Jsonb(r["accepts"]), "now": now},
+        )
+        counts["inserted_or_updated"] += 1
     return counts
 
 
-def main(argv: list[str] | None = None) -> int:
-    parser = argparse.ArgumentParser(description=__doc__.split("\n")[0])
-    parser.add_argument("--apply", action="store_true", help="write to DATABASE_URL")
-    args = parser.parse_args(argv)
+def main() -> None:
+    parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
+    parser.add_argument("--apply", action="store_true", help="write to the database (default: print only)")
+    parser.add_argument("--url", help="database URL (default: Neon main from .env)")
+    args = parser.parse_args()
     logging.basicConfig(level=logging.INFO, format="%(message)s")
-    logging.getLogger("httpx").setLevel(logging.WARNING)
+
     rows = fetch_chg_locations()
+    by_kind: dict[str, int] = {}
     for r in rows:
-        days = ",".join(d for d in _DAYS if d in r["hours"]) or "no hours"
-        print(f"{r['id']:16} {r['name'][:40]:40} {r['address'][:48]:48} {days}")
-    print(f"{len(rows)} sites placed in San Diego County")
-    if args.apply:
-        print(apply(rows))
-    return 0
+        by_kind[r["kind"]] = by_kind.get(r["kind"], 0) + 1
+    print(f"fetched {len(rows)} San Diego Medi-Cal sites: {by_kind}")
+    if not args.apply:
+        for r in rows:
+            print(f"  {r['id']:28} {r['name'][:50]:50} {r['address'][:50]}")
+        return
+
+    from app.db import get_conn
+
+    with get_conn(args.url) as conn:
+        print(load(rows, conn))
 
 
 if __name__ == "__main__":
-    sys.exit(main())
+    main()
