@@ -21,9 +21,11 @@ Sendblue webhook (app/main.py)
 
 ### messaging (`app/messaging/__init__.py` re-exports the active provider)
 Provider chosen by `MESSAGING_PROVIDER` (`sendblue` default, `textbee` fallback). Each provider module (`sendblue.py`, `textbee.py`) exposes the same three functions. If Sendblue's free plan has no inbound webhooks, `app/messaging/poller.py` polls for new messages and feeds them to the same handler.
-- `parse_inbound(payload: dict) -> InboundMessage`
+- `parse_inbound(payload: dict) -> InboundMessage | None`  (None for outbound echoes, status callbacks, group messages)
 - `send_text(phone: str, text: str) -> None`
 - `download_media(url: str) -> bytes`  (inbound media CDN links expire, download immediately)
+
+Inbound path: webhook (`app/main.py`) or poller (`app/messaging/poller.py`) -> `app/messaging/handler.handle_inbound(msg)`: dedupes on `message_id`, downloads media, calls `conversation.router.handle`, sends replies. Until the router exists it echoes.
 
 ### safety (`app/safety/keywords.py`)
 - `screen(text: str, language: str = "en") -> SafetyResult`

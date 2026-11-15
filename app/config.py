@@ -5,6 +5,8 @@ class Settings(BaseSettings):
     model_config = SettingsConfigDict(env_file=".env", extra="ignore")
 
     messaging_provider: str = "sendblue"
+    messaging_inbound: str = "webhook"  # webhook | poll
+    poll_interval_seconds: float = 2.0
     textbee_api_key: str = ""
     textbee_device_id: str = ""
 
