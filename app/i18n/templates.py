@@ -45,6 +45,8 @@ TEMPLATES: dict[str, dict[str, str]] = {
         "fallback.telehealth": "Your plan covers telehealth visits. Check your plan's app or website.",
         "fallback.211": "Call 211 San Diego (dial 2-1-1) to find an open clinic near you.",
         "fallback.911": "If it gets worse, call 911.",
+        # ---- pipeline (#17) ---------------------------------------------------
+        "pipeline.ask_zip": "I couldn't find that place in San Diego County. What's your ZIP code?",
     },
     "es": {
         # ---- render (#7) ------------------------------------------------------
@@ -82,6 +84,8 @@ TEMPLATES: dict[str, dict[str, str]] = {
         "fallback.telehealth": "Tu plan cubre consultas por telesalud. Revisa la app o el sitio web de tu plan.",
         "fallback.211": "Llama al 211 San Diego (marca 2-1-1) para encontrar una clínica abierta cerca de ti.",
         "fallback.911": "Si empeora, llama al 911.",
+        # ---- pipeline (#17) ---------------------------------------------------
+        "pipeline.ask_zip": "No encontré ese lugar en el condado de San Diego. ¿Cuál es tu código postal?",
     },
 }
 
