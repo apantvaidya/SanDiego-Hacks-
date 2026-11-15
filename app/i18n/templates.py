@@ -66,6 +66,14 @@ TEMPLATES: dict[str, dict[str, str]] = {
         "onboarding.income_why": "This unlocks discounts at clinics. I only keep the range.",
         "onboarding.ask_language": "English or Español? Reply 1 for English, 2 para Español.",
         "onboarding.done": "You're set up with {plan}. Text me any health question, any time. I keep only your plan, household size and income range, never your card or member ID.",
+        # ---- followup (#16) ---------------------------------------------------
+        "followup.checkin": "Checking in about \"{topic}\". How are you feeling now? Reply 1 better, 2 same, 3 worse.",
+        "followup.nothing_yet": "Nothing to follow up on yet. Text me a health question first.",
+        "followup.better": "Glad you're feeling better. Text me any time.",
+        "followup.same": "Thanks for letting me know. If it's not improving in a day or two, get it checked. Text me any time and I'll find care near you.",
+        "followup.worse": "I'm sorry it's worse. It should be looked at in person. Where are you right now?",
+        "followup.worse_er": "I'm sorry it's worse. Getting worse means you should go to the ER, or call 911 if it's severe. Where are you right now? I'll find the nearest ER.",
+        "followup.reprompt": "Reply 1 if you're better, 2 if it's the same, or 3 if it's worse.",
     },
     "es": {
         # ---- render (#7) ------------------------------------------------------
@@ -124,6 +132,14 @@ TEMPLATES: dict[str, dict[str, str]] = {
         "onboarding.income_why": "Esto te da descuentos en clínicas. Solo guardo el rango.",
         "onboarding.ask_language": "English or Español? Reply 1 for English, 2 para Español.",
         "onboarding.done": "Listo, quedaste registrado con {plan}. Escríbeme cualquier pregunta de salud cuando quieras. Solo guardo tu plan, el tamaño de tu hogar y el rango de ingresos, nunca tu tarjeta ni tu número de miembro.",
+        # ---- followup (#16) ---------------------------------------------------
+        "followup.checkin": "Te escribo sobre \"{topic}\". ¿Cómo te sientes ahora? Responde 1 mejor, 2 igual, 3 peor.",
+        "followup.nothing_yet": "Todavía no hay nada para dar seguimiento. Primero escríbeme una pregunta de salud.",
+        "followup.better": "Me alegra que te sientas mejor. Escríbeme cuando quieras.",
+        "followup.same": "Gracias por avisarme. Si no mejora en uno o dos días, hazte revisar. Escríbeme cuando quieras y te busco atención cerca.",
+        "followup.worse": "Lamento que esté peor. Deberían revisarte en persona. ¿Dónde estás ahora mismo?",
+        "followup.worse_er": "Lamento que esté peor. Si empeora, debes ir a la sala de emergencias, o llamar al 911 si es grave. ¿Dónde estás ahora mismo? Te busco la sala de emergencias más cercana.",
+        "followup.reprompt": "Responde 1 si estás mejor, 2 si sigues igual o 3 si estás peor.",
     },
 }
 

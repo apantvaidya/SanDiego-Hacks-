@@ -68,6 +68,9 @@ def _get_client() -> genai.Client:
 
 
 def _image_mime(data: bytes) -> str:
+    """MIME type for the `image` argument: photos, plus PDFs (plan benefit summaries, #14)."""
+    if data[:5] == b"%PDF-":
+        return "application/pdf"
     if data[:3] == b"\xff\xd8\xff":
         return "image/jpeg"
     if data[:8] == b"\x89PNG\r\n\x1a\n":

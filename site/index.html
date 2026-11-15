@@ -1,0 +1,108 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Care Navigator</title>
+<meta name="description" content="Text one number with any medical question. It knows your coverage and location, so it tells you what to do, where to go, and what it will cost.">
+<style>
+  :root {
+    --bg: #fbfaf7; --fg: #1d1d1b; --muted: #5d5c57; --line: #e4e1d8;
+    --card: #ffffff; --accent: #0f6b5c; --accent-soft: #e3f1ed; --me: #1f6fd6; --me-fg: #ffffff;
+    --them: #e9e8e4; --warn: #9a3412;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --bg: #141413; --fg: #ecebe6; --muted: #a8a69e; --line: #2d2c29;
+      --card: #1c1c1a; --accent: #5cc4ae; --accent-soft: #19302b; --me: #2f7ee3; --me-fg: #ffffff;
+      --them: #2a2a27; --warn: #f0a07a;
+    }
+  }
+  :root[data-theme="dark"] {
+    --bg: #141413; --fg: #ecebe6; --muted: #a8a69e; --line: #2d2c29;
+    --card: #1c1c1a; --accent: #5cc4ae; --accent-soft: #19302b; --me: #2f7ee3; --me-fg: #ffffff;
+    --them: #2a2a27; --warn: #f0a07a;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; background: var(--bg); color: var(--fg);
+    font: 17px/1.55 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  }
+  main { max-width: 880px; margin: 0 auto; padding: 48px 16px 64px; }
+  h1 { font-size: clamp(2rem, 6vw, 3rem); line-height: 1.1; margin: 0 0 12px; letter-spacing: -0.02em; }
+  h2 { font-size: 1.35rem; margin: 48px 0 12px; }
+  p { margin: 0 0 12px; }
+  .lede { font-size: 1.2rem; color: var(--muted); max-width: 36em; }
+  .pill { display: inline-block; background: var(--accent-soft); color: var(--accent); font-weight: 600;
+          font-size: 0.85rem; padding: 4px 10px; border-radius: 999px; margin-bottom: 16px; }
+  .number { margin-top: 20px; padding: 16px; border: 1px solid var(--line); border-radius: 12px; background: var(--card); }
+  .number strong { font-size: 1.3rem; }
+  .number small { display: block; color: var(--muted); margin-top: 4px; }
+  ol.steps { padding-left: 1.2em; margin: 0; }
+  ol.steps li { margin-bottom: 10px; }
+  .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 16px; }
+  .card { background: var(--card); border: 1px solid var(--line); border-radius: 12px; padding: 16px; }
+  .card h3 { margin: 0 0 6px; font-size: 1.05rem; }
+  .card p { color: var(--muted); font-size: 0.95rem; margin: 0; }
+  .chat { display: flex; flex-direction: column; gap: 8px; max-width: 420px; }
+  .bubble { padding: 10px 14px; border-radius: 18px; max-width: 85%; font-size: 0.95rem; white-space: pre-line; }
+  .me { align-self: flex-end; background: var(--me); color: var(--me-fg); border-bottom-right-radius: 4px; }
+  .them { align-self: flex-start; background: var(--them); border-bottom-left-radius: 4px; }
+  .safety { border-left: 4px solid var(--warn); padding: 12px 16px; background: var(--card); border-radius: 8px; }
+  footer { margin-top: 56px; color: var(--muted); font-size: 0.9rem; border-top: 1px solid var(--line); padding-top: 16px; }
+  a { color: var(--accent); }
+</style>
+</head>
+<body>
+<main>
+  <span class="pill">San Diego · any insurance or none</span>
+  <h1>Care Navigator</h1>
+  <p class="lede">Text one number with any medical question. It knows your coverage and location, so it tells you what to do, where to go, and what it will cost.</p>
+
+  <div class="number">
+    <strong>+1 (646) 620-8124</strong>
+    <small>iMessage demo line. During the hackathon it only answers phones we've added, so ask us for a live demo.</small>
+  </div>
+
+  <h2>How it works</h2>
+  <ol class="steps">
+    <li><strong>Set up by text in about two minutes.</strong> Send a photo of your insurance card, or say you don't have insurance. Add your household size, an income range, and English or Spanish.</li>
+    <li><strong>Text any health question.</strong> You get first-aid steps and when to go to the ER, then it asks where you are.</li>
+    <li><strong>Get two or three places open right now.</strong> Each one shows distance, hours, what it will cost you, and where the information came from.</li>
+    <li><strong>It checks in the next day.</strong> If you're worse, it points you to a higher level of care.</li>
+  </ol>
+
+  <h2>Example</h2>
+  <div class="chat" aria-label="Example conversation">
+    <div class="bubble me">think i sprained my ankle</div>
+    <div class="bubble them">Rest it, ice it for 15 minutes at a time, and keep it raised. Go to the ER if you can't put any weight on it, it looks misshapen, or your foot is numb.
+Where are you right now?</div>
+    <div class="bubble me">near UCSD</div>
+    <div class="bubble them">1. Marque Urgent Care - UTC (2.4 mi)
+Open until 6 PM. Walk-in.
+Cost for you: $0 with Medi-Cal
+Source: Community Health Group provider directory</div>
+  </div>
+
+  <h2>Same question, three different answers</h2>
+  <div class="grid">
+    <div class="card"><h3>Kaiser member</h3><p>The nearest Kaiser urgent care that's open, the Kaiser advice line, and your copay.</p></div>
+    <div class="card"><h3>Medi-Cal member</h3><p>An urgent care or community clinic in your plan's network, open now, $0.</p></div>
+    <div class="card"><h3>No insurance</h3><p>A sliding-fee clinic at your income, or a cash urgent care with its listed price, and when the ER is worth it.</p></div>
+  </div>
+
+  <h2>Safety and privacy</h2>
+  <div class="safety">
+    <p><strong>This is not for emergencies.</strong> If you think it's an emergency, call 911. For a mental health crisis, call or text 988. Emergency warning signs are caught before anything else and always get that answer.</p>
+  </div>
+  <p style="margin-top:12px">It never diagnoses. It doesn't keep your member ID or the photo of your card, and it asks for an income range, not an exact number. Text STOP anytime.</p>
+
+  <h2>Why it's different</h2>
+  <p>Insurer chatbots only help their own members. General chatbots don't know your plan or what's open near you. Care Navigator works with any plan or none, and every option comes from real directory and clinic data with a source link, never made up.</p>
+
+  <footer>
+    Built at SanD Hacks 2026 for the Bright Data "Data for Good" challenge. Data from Community Health Group's public provider directory, clinic websites (collected with Bright Data), and OpenStreetMap.
+  </footer>
+</main>
+</body>
+</html>
