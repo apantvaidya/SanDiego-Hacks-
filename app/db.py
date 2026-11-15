@@ -19,20 +19,44 @@ from pathlib import Path
 
 import psycopg
 from psycopg.rows import dict_row
+from psycopg_pool import ConnectionPool
 
 from app.config import settings
+
+
+_pool: ConnectionPool | None = None
+
+
+def _main_pool() -> ConnectionPool:
+    """Pool for Neon main. A new Neon connection costs about 0.4 s (TLS + auth); a pooled
+    one costs about 0.06 s per query, which matters for the reply-time budget."""
+    global _pool
+    if _pool is None:
+        _pool = ConnectionPool(
+            settings.database_url,
+            min_size=1,
+            max_size=5,
+            kwargs={"row_factory": dict_row},
+            check=ConnectionPool.check_connection,  # Neon closes idle connections
+            open=True,
+        )
+    return _pool
 
 
 @contextmanager
 def get_conn(url: str | None = None) -> Iterator[psycopg.Connection]:
     """Yield a psycopg connection with dict rows, autocommit off.
 
-    `url` defaults to settings.database_url (Neon main). The crawler passes a branch
-    connection string here.
+    `url` defaults to settings.database_url (Neon main), served from a pool. The crawler
+    passes a branch connection string here, which gets a fresh connection.
     """
     dsn = url or settings.database_url
     if not dsn:
         raise RuntimeError("DATABASE_URL is not set. Copy .env.example to .env and fill it in.")
+    if url is None or url == settings.database_url:
+        with _main_pool().connection() as conn:
+            yield conn
+        return
     with psycopg.connect(dsn, row_factory=dict_row) as conn:
         yield conn
 
