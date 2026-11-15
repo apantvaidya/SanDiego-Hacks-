@@ -8,6 +8,8 @@
 #   hint      what to look for on this page (passed to the extractor)
 #   accepts   coverage this site is known to take, merged with what the page says
 #   blocked   true if a plain request fails (shown in the pitch: why Bright Data)
+#   single    true for a page about one site: keep only its main row (pages like Kaiser's list
+#             nearby facilities too, which must not become rows)
 #   apply_to_name  org-level page (billing, sliding fee): its facts patch every existing row
 #                  whose name contains this text, instead of creating rows
 # Locations a page names without a street (for example FHCSD's walk-in list) become patches
@@ -15,30 +17,30 @@
 # import (#11) loaded first. Marque and MD Today are left out: their home pages list no
 # addresses, and both chains are already in the CHG data.
 #
-# Probed Nov 15 01:25 PT with a plain request: AFC pricing pages return 500, Kaiser facility
-# pages loop on 302, Concentra returns 403. Those need Bright Data Web Unlocker.
+# Probed Nov 15 01:25 PT with a plain request: AFC pages return 500, Kaiser facility pages loop
+# on 302. Those need Bright Data Web Unlocker. Checked through Bright Data Nov 15 10:50 PT: the old
+# AFC /pricing-insurance URLs were 404 pages (now /resources/insurances/, which says self-pay is
+# accepted but lists no price), and Concentra Hillcrest redirects to the locator, so it is dropped.
 
 urgent_care:
   - key: afc_mira_mesa
-    url: https://www.afcurgentcare.com/mira-mesa/resources/pricing-insurance
-    hint: self-pay office visit price, X-ray price, accepted insurance, hours, address
+    url: https://www.afcurgentcare.com/mira-mesa/resources/insurances/
+    hint: clinic name (AFC Urgent Care <area>), address, hours, accepted insurance, self-pay, X-ray
     accepts: [uninsured]
     blocked: true
+    single: true
   - key: afc_mission_valley
-    url: https://www.afcurgentcare.com/mission-valley/resources/pricing-insurance
-    hint: self-pay office visit price, X-ray price, accepted insurance, hours, address
+    url: https://www.afcurgentcare.com/mission-valley/resources/insurances/
+    hint: clinic name (AFC Urgent Care <area>), address, hours, accepted insurance, self-pay, X-ray
     accepts: [uninsured]
     blocked: true
+    single: true
   - key: afc_clairemont
-    url: https://www.afcurgentcare.com/clairemont/resources/pricing-insurance
-    hint: self-pay office visit price, X-ray price, accepted insurance, hours, address
+    url: https://www.afcurgentcare.com/clairemont/resources/insurances/
+    hint: clinic name (AFC Urgent Care <area>), address, hours, accepted insurance, self-pay, X-ray
     accepts: [uninsured]
     blocked: true
-  - key: concentra_hillcrest
-    url: https://www.concentra.com/urgent-care-centers/california/san-diego/hillcrest-urgent-care/
-    hint: hours, address, phone, walk-in, X-ray on site, self-pay price if listed
-    accepts: [uninsured]
-    blocked: true
+    single: true
   - key: south_bay_urgent_care
     url: https://www.southbayurgentcare.com/
     hint: locations, hours, X-ray on site, self-pay or cash prices, insurance accepted
@@ -65,11 +67,20 @@ kaiser:
     hint: urgent care hours, address, phone, walk-in
     accepts: [kaiser]
     blocked: true
+    single: true
   - key: kaiser_otay_mesa_urgent
-    url: https://healthy.kaiserpermanente.org/southern-california/facilities/otay-mesa-medical-offices-100079
+    url: https://healthy.kaiserpermanente.org/southern-california/facilities/Otay-Mesa-Medical-Offices-100079/departments/urgent-care-dlp-101782
     hint: urgent care hours, address, phone, walk-in
     accepts: [kaiser]
     blocked: true
+    single: true
 
-# Lowest priority (PDF heavy). Left for later.
-er: []
+# Kaiser's 24-hour emergency department at Zion (Kaiser lists urgent care in San Diego only at
+# the San Diego Medical Center and Otay Mesa, both above).
+er:
+  - key: kaiser_zion_er
+    url: https://healthy.kaiserpermanente.org/southern-california/facilities/kaiser-permanente-zion-medical-center-100084
+    hint: emergency department hours (24 hours), address, phone
+    accepts: [kaiser]
+    blocked: true
+    single: true

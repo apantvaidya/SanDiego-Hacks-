@@ -6,7 +6,7 @@
 
 Fetching: Bright Data Web Unlocker through the Direct API
 (POST https://api.brightdata.com/request, Bearer BRIGHTDATA_API_TOKEN, zone BRIGHTDATA_UNLOCKER_ZONE).
-Several targets block plain requests (AFC 500, Kaiser 302 loop, Concentra 403), which is the
+Several targets block plain requests (AFC 500, Kaiser 302 loop), which is the
 reason we use Web Unlocker. `--direct` exists only to develop extraction before a zone exists.
 
 Caching: raw pages in crawler/raw/pages/, extractions in crawler/raw/extract/ (both gitignored),
@@ -144,13 +144,43 @@ class _Text(HTMLParser):
             self.parts.append(data)
 
 
+_LD_JSON = re.compile(r"(?is)<script[^>]*application/ld\+json[^>]*>(.*?)</script>")
+
+
+def _ld_hours(html: str) -> str:
+    """Opening hours from schema.org structured data (AFC puts them only there), as text lines
+    the extractor can read. Empty when the page has none."""
+    lines = []
+    for block in _LD_JSON.findall(html):
+        try:
+            data = json.loads(block)
+        except ValueError:
+            continue
+        stack = [data]
+        while stack:
+            item = stack.pop()
+            if isinstance(item, list):
+                stack.extend(item)
+            elif isinstance(item, dict):
+                for spec in item.get("openingHoursSpecification") or []:
+                    if not isinstance(spec, dict):
+                        continue
+                    days = spec.get("dayOfWeek")
+                    for day in days if isinstance(days, list) else [days]:
+                        if day and spec.get("opens") and spec.get("closes"):
+                            lines.append(f"{str(day).rsplit('/', 1)[-1]} {spec['opens'][:5]}-{spec['closes'][:5]}")
+                stack.extend(v for v in item.values() if isinstance(v, (dict, list)))
+    unique = list(dict.fromkeys(lines))
+    return ("Opening hours (page structured data): " + "; ".join(unique) + "\n") if unique else ""
+
+
 def html_to_text(html: str, limit: int = MAX_TEXT) -> str:
     parser = _Text()
     parser.feed(html)
     text = "".join(parser.parts)
     text = re.sub(r"[ \t\r\f\v]+", " ", text)
     text = re.sub(r"\n\s*\n+", "\n", text)
-    return text.strip()[:limit]
+    return (_ld_hours(html) + text.strip())[:limit]
 
 
 # ---------------------------------------------------------------------------
@@ -178,6 +208,9 @@ def run_crawl(targets_path: str = "crawler/targets.yaml", direct: bool = False,
                 if len(text) < 200:
                     raise FetchError(f"page text too short ({len(text)} chars), probably blocked")
                 found = extract_rows(target, text, client)
+                if target.get("single") and found:
+                    # Single-site page: nearby sites it mentions are not this target.
+                    found = [{**found[0], "id": target["key"]}]
                 rows.extend(found)
                 entry["rows"] = len(found)
                 fixes = extract_patches(target, text)
