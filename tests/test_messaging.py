@@ -44,7 +44,13 @@ def test_dedupe():
     assert handler.already_seen(None) is False
 
 
-def test_handle_inbound_echoes_until_router_exists(monkeypatch):
+def test_handle_inbound_echoes_when_router_is_a_stub(monkeypatch):
+    from app.conversation import router
+
+    def stub(msg):
+        raise NotImplementedError
+
+    monkeypatch.setattr(router, "handle", stub)
     sent = []
     monkeypatch.setattr(handler, "send_text", lambda phone, text: sent.append((phone, text)))
     monkeypatch.setattr(handler, "download_media", lambda url: b"x" * 4096)
