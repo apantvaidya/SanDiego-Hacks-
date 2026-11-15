@@ -43,7 +43,7 @@ app/
   care/                candidate query, ranking, cost, live verify, rendering
   i18n/                English and Spanish templates
   followup/            next-day follow-up
-crawler/               Bright Data crawl into a Neon branch, validate, promote
+crawler/               Bright Data crawl into a Neon branch, validate, swap into main (never promote)
 crawler/benefits/      plan benefit extraction (Kaiser, CHG)
 db/                    schema and seeds
 tests/
