@@ -86,12 +86,30 @@ def _level(text: str, profile: Profile) -> tuple[str, float]:
 
 # --------------------------------------------------------------------------- Text 1
 
+def _place_in(text: str) -> GeoPoint | None:
+    """A findable place named in the question itself ("sprained my ankle on UCSD campus")."""
+    try:
+        place = extract_place(text)
+        return geocode(place) if place else None
+    except Exception:
+        log.exception("place extraction on the first message failed")
+        return None
+
+
+def _drop_location_question(reply: str, lang: str) -> str:
+    q = LOCATION_QUESTION.get(lang, LOCATION_QUESTION["en"])
+    return reply[: -len(q)].rstrip() if reply.rstrip().endswith(q) else reply
+
+
 def first_reply(msg: InboundMessage, profile: Profile) -> list[str]:
+    start = time.monotonic()
     level_future = _pool.submit(_level, msg.text, profile)
+    place_future = _pool.submit(_place_in, msg.text)
     triage = first_aid_reply(msg.text, profile)
     store = _store()
     if triage.red_flag:
         level_future.cancel()
+        place_future.cancel()
         from app.followup.scheduler import followup_context
 
         _, old_context = store.get_conversation(profile.user_id)
@@ -105,6 +123,20 @@ def first_reply(msg: InboundMessage, profile: Profile) -> list[str]:
     except FutureTimeout:
         log.warning("level_of_care still running after Text 1; Text 2 will compute it")
     store.set_conversation(profile.user_id, "awaiting_location", context)
+
+    # They already said where they are: answer with the options now instead of asking.
+    try:
+        point = place_future.result(timeout=LEVEL_WAIT_S)
+    except FutureTimeout:
+        point = None
+    if point is not None and context.get("level_of_care"):
+        try:
+            options = _options_at(profile, msg.text, context["level_of_care"], context["level_confidence"],
+                                  point, start)
+            return [_drop_location_question(triage.reply, _lang(profile))] + options
+        except Exception:
+            log.exception("options for the place in the first message failed; asking instead")
+            store.set_conversation(profile.user_id, "awaiting_location", context)
     return [triage.reply]
 
 
