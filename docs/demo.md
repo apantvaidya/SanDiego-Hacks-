@@ -9,7 +9,7 @@ The demo runs **live on one phone** at real time. That matters on Sunday afterno
 
 | Profile | #1 option | Cost shown |
 |---|---|---|
-| Kaiser | Kaiser San Diego Medical Center Urgent Care, 7.0 mi, open until 9 PM, X-ray | "your plan's copay (amount not confirmed)" until #14 lands |
+| Kaiser | Kaiser San Diego Medical Center Urgent Care, 7.0 mi, open until 9 PM, X-ray | "your plan's copay (amount not confirmed)" until #14's extraction is run with `--apply` (needs Gemini credits; checked 02:15 AM, `plans` still has no Kaiser copay) |
 | Medi-Cal (CHG) | Marque Urgent Care UTC, 2.4 mi, open until 6 PM | $0 with Medi-Cal |
 | Uninsured | AFC Urgent Care Clairemont / Mira Mesa, about 5 mi, open until 8 PM, X-ray | $199 self-pay at Mira Mesa (visit only, X-ray extra); Clairemont "not confirmed" |
 
@@ -18,6 +18,7 @@ The demo runs **live on one phone** at real time. That matters on Sunday afterno
 - [ ] Server running (`uv run uvicorn app.main:app --port 8000`), tunnel up, webhook registered to the current tunnel URL (`uv run python -m scripts.sendblue_setup webhook <url>`)
 - [ ] Gemini has credits or billing (free tier is 20 requests per day per model; see PR #34)
 - [ ] `.env`: `GEMINI_MODEL=gemini-3.5-flash-lite`
+- [ ] Kaiser copay loaded: `uv run python -m crawler.benefits.extract_plans`, check the numbers, then `--apply` (#14)
 - [ ] Demo phone texted the line once today; `#reset` then `#profile kaiser` works
 - [ ] Phone on Do Not Disturb, screen mirroring or a big font
 - [ ] Backup: screen recording of a full run, in case Wi-Fi or Gemini fails at the table
@@ -70,3 +71,4 @@ Not yet: the free Sendblue line only reaches verified contacts. That's a plan li
 - Directory accuracy: in a 2023 Senate Finance Committee secret-shopper study of **mental health providers listed by Medicare Advantage plans**, callers got an appointment only 18% of the time. Don't say "people" generally.
 - FHCSD: "a reduced fee of **$25 per visit**" for patients who qualify for the sliding fee and don't qualify for insurance (FHCSD billing page, checked Nov 15). Walk-in urgent care 8 AM to 8 PM, **except Sundays**.
 - Don't quote cash urgent care prices as facts on stage. Say "the price the clinic lists, with the link."
+- **Medi-Cal $0 is current:** California imposes no cost sharing on Medi-Cal members today (Senate Budget Subcommittee analysis, Feb 2026). **H.R. 1 requires copays of up to $35 per service for some expansion adults above 100% FPL starting October 1, 2028** (DHCS; primary care, mental health and substance use services exempt). Good pitch line: "the $0 answer has an expiration date, and people will need this more, not less."

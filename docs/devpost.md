@@ -61,5 +61,6 @@ Python, FastAPI, Sendblue, Gemini API, Neon, PostGIS, Bright Data, FHIR (Da Vinc
 ## Honest status (keep this current before submitting)
 
 - Live verification of the top option (#15) and the Bright Data crawl (#12) are built but waiting on a Bright Data Web Unlocker zone; until then, cards say "checked <time>", not "verified".
-- Kaiser copay shows "amount not confirmed" until plan benefits (#14) land.
+- Kaiser copay shows "amount not confirmed" until the plan benefits extraction (#14, merged) is run against the database; it needs Gemini credits.
+- CHG directory sites are verified live at answer time (#15); other clinic websites wait on the Bright Data zone.
 - The free Sendblue line only reaches verified phones, so judges watch the demo phone.
