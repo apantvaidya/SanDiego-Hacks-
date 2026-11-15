@@ -30,6 +30,7 @@ Inbound path: webhook (`app/main.py`) or poller (`app/messaging/poller.py`) -> `
 ### safety (`app/safety/keywords.py`)
 - `screen(text: str, language: str = "en") -> SafetyResult`
   Pure function, no network. `SafetyResult.reply` is a fixed string (911, plus 988 for self-harm).
+- `NOT_FOR_EMERGENCIES[lang]`: fixed notice for the welcome text and HELP reply (911 and 988).
 
 ### llm (`app/llm/gemini.py`)
 - `generate_json(prompt: str, schema: dict, image: bytes | None = None, system: str | None = None) -> dict`

@@ -60,6 +60,7 @@ def test_webhook_returns_fast_and_ignores_outbound(monkeypatch):
     from app import main
 
     calls = []
+    monkeypatch.setattr(main.settings, "sendblue_webhook_secret", "")  # don't depend on local .env
     monkeypatch.setattr(main, "handle_inbound", lambda msg: calls.append(msg))
     client = TestClient(main.app)
     assert client.post("/webhooks/sendblue", json={**INBOUND, "message_handle": "wh-1"}).json() == {"ok": True}
