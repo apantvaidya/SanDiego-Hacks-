@@ -12,6 +12,29 @@ from app.models import InboundMessage
 pytestmark = pytest.mark.skipif(not settings.database_url, reason="DATABASE_URL not set")
 
 
+@pytest.fixture(autouse=True)
+def fake_downstream(monkeypatch):
+    """Test the router alone: fake onboarding (#10) and pipeline (#17), which call Gemini."""
+    from app.conversation import onboarding
+
+    def fake_onboarding(user, msg):
+        return ["ONBOARDING"]
+
+    def fake_first(msg, profile):
+        user = store.get_or_create_user(msg.phone)
+        store.set_conversation(user.id, "awaiting_location", {"symptom_text": msg.text})
+        return [f"FIRST:{profile.language}:{profile.label}"]
+
+    def fake_options(msg, profile, symptom_text):
+        user = store.get_or_create_user(msg.phone)
+        store.set_conversation(user.id, "idle", {})
+        return [f"OPTIONS:{symptom_text}@{msg.text}"]
+
+    monkeypatch.setattr(onboarding, "handle_onboarding", fake_onboarding)
+    monkeypatch.setattr(pipeline, "first_reply", fake_first)
+    monkeypatch.setattr(pipeline, "options_reply", fake_options)
+
+
 @pytest.fixture
 def phone():
     number = "+1555" + str(uuid.uuid4().int)[:7]
@@ -24,9 +47,26 @@ def send(phone, text="", media=None):
     return router.handle(InboundMessage(phone=phone, text=text, media_urls=media or []))
 
 
-def test_new_user_without_onboarding_gets_demo_instructions(phone):
-    replies = send(phone, "hi")
-    assert len(replies) == 1 and "#profile" in replies[0]
+def test_new_user_goes_to_onboarding(phone):
+    assert send(phone, "hi") == ["ONBOARDING"]
+
+
+def test_placeholders_while_modules_are_stubs(phone, monkeypatch):
+    from app.conversation import onboarding
+
+    def stub(*args, **kwargs):
+        raise NotImplementedError
+
+    monkeypatch.setattr(onboarding, "handle_onboarding", stub)
+    monkeypatch.setattr(pipeline, "first_reply", stub)
+    monkeypatch.setattr(pipeline, "options_reply", stub)
+    assert "#profile" in send(phone, "hi")[0]
+    send(phone, "#profile kaiser")
+    assert "Where are you" in send(phone, "think i sprained my ankle")[0]
+    user = store.get_or_create_user(phone)
+    assert store.get_conversation(user.id) == ("awaiting_location", {"symptom_text": "think i sprained my ankle"})
+    assert "still being built" in send(phone, "La Jolla")[0]
+    assert store.get_conversation(user.id)[0] == "idle"
 
 
 def test_profile_switch_and_whoami(phone):
@@ -45,16 +85,10 @@ def test_unknown_profile(phone):
     assert "don't know" in send(phone, "#profile aetna")[0]
 
 
-def test_question_flow_with_placeholder_pipeline(phone):
+def test_question_flow(phone):
     send(phone, "#profile kaiser")
-    first = send(phone, "think i sprained my ankle")[0]
-    assert "Where are you" in first
-    user = store.get_or_create_user(phone)
-    state, context = store.get_conversation(user.id)
-    assert state == "awaiting_location" and context["symptom_text"] == "think i sprained my ankle"
-    second = send(phone, "La Jolla")[0]
-    assert "still being built" in second
-    assert store.get_conversation(user.id)[0] == "idle"
+    assert send(phone, "think i sprained my ankle") == ["FIRST:en:kaiser"]
+    assert send(phone, "La Jolla") == ["OPTIONS:think i sprained my ankle@La Jolla"]
 
 
 def test_router_calls_pipeline_with_saved_symptom(phone, monkeypatch):
@@ -108,7 +142,7 @@ def test_lang_switch(phone):
     send(phone, "#profile kaiser")
     assert "español" in send(phone, "#lang es")[0]
     assert send(phone, "#whoami")[0].startswith("Perfil activo")
-    assert "Dónde" in send(phone, "me torcí el tobillo")[0]
+    assert send(phone, "me torcí el tobillo") == ["FIRST:es:kaiser"]
 
 
 def test_reset_and_reset_all(phone):
@@ -119,7 +153,7 @@ def test_reset_and_reset_all(phone):
     assert store.get_conversation(user.id) == ("idle", {})
     send(phone, "#reset all")
     assert store.list_profiles(user.id) == []
-    assert "#profile" in send(phone, "hello")[0]
+    assert send(phone, "hello") == ["ONBOARDING"]
 
 
 def test_followup_placeholder(phone):
@@ -128,8 +162,7 @@ def test_followup_placeholder(phone):
 
 
 def test_photo_without_text_goes_to_onboarding(phone):
-    replies = send(phone, "", media=["https://cdn.example.com/card.jpg"])
-    assert "#profile" in replies[0]
+    assert send(phone, "", media=["https://cdn.example.com/card.jpg"]) == ["ONBOARDING"]
 
 
 def test_commands_without_hash(phone):
@@ -141,9 +174,9 @@ def test_commands_without_hash(phone):
 
 def test_bare_words_that_are_questions_stay_questions(phone):
     send(phone, "#profile kaiser")
-    assert "Where are you" in send(phone, "is there a language barrier at the clinic")[0]
+    assert send(phone, "is there a language barrier at the clinic") == ["FIRST:en:kaiser"]
     send(phone, "#reset")
-    assert "Where are you" in send(phone, "profile of a good urgent care?")[0]
+    assert send(phone, "profile of a good urgent care?") == ["FIRST:en:kaiser"]
 
 
 def test_profile_reply_uses_plain_names(phone):
