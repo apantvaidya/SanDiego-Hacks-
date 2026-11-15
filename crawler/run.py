@@ -1,6 +1,6 @@
 """Crawl run: Neon branch -> load -> validate -> swap into main (or reject).
 
-    uv run python -m crawler.run --chg               # branch, reload CHG data, validate, print; no swap
+    uv run python -m crawler.run --chg --crawl       # branch, reload CHG + crawl, validate, print; no swap
     uv run python -m crawler.run --chg --swap        # ... and swap into main if validation passes
     uv run python -m crawler.run --rollback          # restore main.locations from locations_prev
     uv run python -m crawler.run --keep-branch ...   # keep the branch as a snapshot (default: keep)
@@ -9,8 +9,10 @@ Every run is logged in main's crawl_runs (branch name, counts, checks, passed, s
 Branches are kept by default as snapshots, so two crawls can be compared later; pass
 --delete-branch to remove it.
 
-Loaders: --chg runs the CHG FHIR loader (#11) against the branch. The Bright Data crawl (#12)
-gets a flag here once it merges.
+Loaders run against the branch, in this order:
+  --chg    the CHG FHIR directory (#11): Medi-Cal network sites
+  --crawl  the Bright Data crawl (#12): rows and name-matched patches (needs a Web Unlocker zone;
+           add --direct only for development)
 """
 from __future__ import annotations
 
@@ -39,7 +41,7 @@ def _log_run(name: str, m: dict, found: list[str], swapped: bool) -> None:
         )
 
 
-def run(load_chg: bool, swap: bool, delete_branch: bool) -> dict:
+def run(load_chg: bool, swap: bool, delete_branch: bool, load_crawl: bool = False, direct: bool = False) -> dict:
     name = neon.crawl_branch_name()
     branch_id, branch_url = neon.create_branch(name)
     try:
@@ -48,6 +50,14 @@ def run(load_chg: bool, swap: bool, delete_branch: bool) -> dict:
                 from crawler.chg_fhir import fetch_chg_locations, load
 
                 print("CHG:", load(fetch_chg_locations(), b))
+            if load_crawl:
+                from crawler.crawl import apply_patches, run_crawl
+                from crawler.crawl import load as load_rows
+
+                rows, patches, report = run_crawl(direct=direct)
+                for e in report:
+                    print(f"  {e['key']:32} {e['how'] or '-':10} {e['error'] or str(e['rows']) + ' rows, ' + str(e['patches']) + ' patches'}")
+                print("crawl:", load_rows(rows, b), apply_patches(patches, b))
         with get_conn(branch_url) as b, get_conn() as main:
             m = measure(b, main)
         found = problems(m)
@@ -71,6 +81,8 @@ def run(load_chg: bool, swap: bool, delete_branch: bool) -> dict:
 def main() -> None:
     parser = argparse.ArgumentParser(description="Crawl into a Neon branch, validate, swap into main")
     parser.add_argument("--chg", action="store_true", help="load the CHG FHIR directory into the branch")
+    parser.add_argument("--crawl", action="store_true", help="run the Bright Data crawl into the branch")
+    parser.add_argument("--direct", action="store_true", help="with --crawl: fetch without Bright Data (development only)")
     parser.add_argument("--swap", action="store_true", help="swap into main if validation passes")
     parser.add_argument("--delete-branch", action="store_true", help="delete the branch afterward")
     parser.add_argument("--rollback", action="store_true", help="restore main.locations from locations_prev")
@@ -81,7 +93,9 @@ def main() -> None:
         with get_conn() as main:
             print("restored rows:", rollback(main))
         return
-    run(args.chg, args.swap, args.delete_branch)
+    if not (args.chg or args.crawl):
+        parser.error("pick at least one loader: --chg and/or --crawl")
+    run(args.chg, args.swap, args.delete_branch, load_crawl=args.crawl, direct=args.direct)
 
 
 if __name__ == "__main__":
