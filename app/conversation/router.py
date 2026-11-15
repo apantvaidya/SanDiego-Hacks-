@@ -8,7 +8,9 @@ Order for every inbound message:
   5. No active profile, or an onboarding state: onboarding (#10).
   6. awaiting_followup_reply: follow-up handler (#16).
   7. awaiting_location: pipeline.options_reply (#17), using the saved symptom.
-  8. Otherwise: pipeline.first_reply (#17).
+  8. Idle right after an answer: pipeline.after_answer (directions, an update on the same
+     problem). It returns None for a new question.
+  9. Otherwise: pipeline.first_reply (#17).
 
 State ownership: the pipeline and onboarding set their own next state through
 app.conversation.store (see docs/interfaces.md). The router only sets state for safety
@@ -112,7 +114,14 @@ def handle(msg: InboundMessage) -> list[str]:
             store.set_conversation(user.id, "idle", {})
             return [_ph("options_reply", language)]
 
-    # 8. New question.
+    # 8. Right after an answer: read the message in context (directions, more about the same
+    #    problem). None means it is a new question.
+    if state == "idle" and pipeline.is_recent(context):
+        replies = pipeline.after_answer(msg, profile, context)
+        if replies is not None:
+            return replies
+
+    # 9. New question.
     try:
         return pipeline.first_reply(msg, profile)
     except NotImplementedError:

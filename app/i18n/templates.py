@@ -47,6 +47,9 @@ TEMPLATES: dict[str, dict[str, str]] = {
         "fallback.911": "If it gets worse, call 911.",
         # ---- pipeline (#17) ---------------------------------------------------
         "pipeline.ask_zip": "I couldn't find that place in San Diego County. What's your ZIP code?",
+        "pipeline.ask_place_help": "No problem. Text me roughly where you are: a cross street, a landmark, your neighborhood, or your ZIP code. Then I'll send the closest places with a map link for directions.",
+        "pipeline.directions_intro": "Tap a link for directions:",
+        "pipeline.after_other": "Text me if anything changes. Reply DIRECTIONS for map links to the places I sent, or ask me a new question any time.",
         # ---- onboarding (#10) -------------------------------------------------
         "onboarding.welcome": "Hi, I'm Care Navigator. Text me any health question and I'll tell you what to do, where to go nearby, and what it should cost you.",
         "onboarding.ask_card": "To start, send a photo of the front of your insurance card. No card? Reply NONE, MEDI-CAL, or OTHER.",
@@ -113,6 +116,9 @@ TEMPLATES: dict[str, dict[str, str]] = {
         "fallback.911": "Si empeora, llama al 911.",
         # ---- pipeline (#17) ---------------------------------------------------
         "pipeline.ask_zip": "No encontré ese lugar en el condado de San Diego. ¿Cuál es tu código postal?",
+        "pipeline.ask_place_help": "No hay problema. Dime más o menos dónde estás: una calle cercana, un lugar conocido, tu vecindario o tu código postal. Luego te mando los lugares más cercanos con un enlace de mapa para llegar.",
+        "pipeline.directions_intro": "Toca un enlace para ver cómo llegar:",
+        "pipeline.after_other": "Escríbeme si algo cambia. Responde DIRECCIONES para ver los mapas de los lugares que te mandé, o hazme otra pregunta cuando quieras.",
         # ---- onboarding (#10) -------------------------------------------------
         "onboarding.welcome": "Hola, soy Care Navigator. Escríbeme cualquier pregunta de salud y te diré qué hacer, adónde ir cerca de ti y cuánto debería costarte.",
         "onboarding.ask_card": "Para empezar, envía una foto del frente de tu tarjeta de seguro. ¿No tienes tarjeta? Responde NINGUNO, MEDI-CAL u OTRO.",
