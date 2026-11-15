@@ -122,8 +122,10 @@ CREATE TABLE IF NOT EXISTS sd_places (
     lon     double precision NOT NULL
 );
 
--- Open now. hours: {"mon": [["08:00","20:00"]], ...}; missing day = closed.
--- Split an overnight span (22:00 to 02:00) into two spans across two days.
+-- Open now. hours: {"mon": [["08:00","20:00"]], ...}; missing day = closed. Times are San Diego local.
+-- A span is [open, close): open at 08:00, closed at exactly 20:00.
+-- Open until midnight: close "24:00". Open 24 hours: [["00:00","24:00"]].
+-- Overnight (22:00 to 02:00): split into "mon": [["22:00","24:00"]] and "tue": [["00:00","02:00"]].
 CREATE OR REPLACE FUNCTION is_open_now(hours jsonb, at_ts timestamptz DEFAULT now())
 RETURNS boolean LANGUAGE sql STABLE AS $$
   SELECT EXISTS (
@@ -131,7 +133,7 @@ RETURNS boolean LANGUAGE sql STABLE AS $$
       FROM jsonb_array_elements(
              COALESCE(hours -> lower(to_char(at_ts AT TIME ZONE 'America/Los_Angeles', 'Dy')), '[]'::jsonb)
            ) AS span
-     WHERE (at_ts AT TIME ZONE 'America/Los_Angeles')::time
-           BETWEEN (span->>0)::time AND (span->>1)::time
+     WHERE (at_ts AT TIME ZONE 'America/Los_Angeles')::time >= (span->>0)::time
+       AND (at_ts AT TIME ZONE 'America/Los_Angeles')::time <  (span->>1)::time
   )
 $$;
