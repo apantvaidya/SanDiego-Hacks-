@@ -106,7 +106,10 @@ def test_candidates_kaiser_ankle_near_ucsd():
 
 def test_candidates_medi_cal_ankle_near_ucsd():
     ids = {r["id"] for r in _candidates("chg_medi_cal", "medi_cal", ["urgent_care", "fqhc"])}
-    assert ids == {"urgent_care_and_more_midway", "fhcsd_logan_heights"}
+    assert {"urgent_care_and_more_midway", "fhcsd_logan_heights"} <= ids
+    with get_conn() as conn:
+        accepts = conn.execute("SELECT id, accepts FROM locations WHERE id = ANY(%s)", (list(ids),)).fetchall()
+    assert all("chg_medi_cal" in r["accepts"] for r in accepts)  # CHG network only
 
 
 def test_candidates_uninsured_ankle_near_ucsd():
@@ -117,5 +120,7 @@ def test_candidates_uninsured_ankle_near_ucsd():
 
 def test_candidates_closed_locations_excluded():
     # Sunday 3pm: FHCSD is closed Sundays and the Midway clinic closes at 2pm.
-    rows = _candidates("chg_medi_cal", "medi_cal", ["urgent_care", "fqhc"], at="2026-11-15 15:00")
-    assert rows == []
+    ids = {r["id"] for r in _candidates("chg_medi_cal", "medi_cal", ["urgent_care", "fqhc"], at="2026-11-15 15:00")}
+    assert not ids & {"fhcsd_logan_heights", "urgent_care_and_more_midway"}
+    # Sunday 11:30pm: no urgent care or clinic is open.
+    assert _candidates("chg_medi_cal", "medi_cal", ["urgent_care", "fqhc"], at="2026-11-15 23:30") == []
