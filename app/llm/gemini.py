@@ -4,6 +4,11 @@
     generate_text(prompt, system=None) -> str
 
 * Model: GEMINI_MODEL, then one retry on GEMINI_FALLBACK_MODEL (default gemini-3.5-flash).
+* Free tier quota is 20 requests per day **per model** (429 RESOURCE_EXHAUSTED, measured Nov 15
+  01:10 PT). A model that returns 429 is skipped for the rest of the process, and after a quota
+  error the call spills over to GEMINI_QUOTA_SPILLOVER_MODELS (comma-separated; default
+  gemini-3.6-flash, gemini-3.1-flash-lite), each with its own daily quota. Enabling billing on
+  the Cloud project removes the limit.
   Measured Nov 15 00:30 PT: gemini-flash-latest, 3.7 and 3.8 Flash timed out at 30 s (503
   "high demand"); gemini-3.5-flash answered in 5 to 8 s; gemini-3.5-flash-lite in under 1 s.
   Recommended .env: GEMINI_MODEL=gemini-3.5-flash-lite. Retrying the same overloaded model
@@ -31,6 +36,12 @@ log = logging.getLogger(__name__)
 
 TIMEOUT_S = 12
 FALLBACK_MODEL = os.getenv("GEMINI_FALLBACK_MODEL", "gemini-3.5-flash")
+SPILLOVER_MODELS = [
+    m.strip()
+    for m in os.getenv("GEMINI_QUOTA_SPILLOVER_MODELS", "gemini-3.6-flash,gemini-3.1-flash-lite").split(",")
+    if m.strip()
+]
+_exhausted: set[str] = set()  # models that returned 429 quota errors in this process
 
 
 class GeminiError(RuntimeError):
@@ -83,9 +94,26 @@ def _models() -> list[str]:
     return list(dict.fromkeys([settings.gemini_model, FALLBACK_MODEL]))  # dedupe, keep order
 
 
+def _is_quota_error(e: Exception) -> bool:
+    return "RESOURCE_EXHAUSTED" in str(e)
+
+
+def _chain():
+    """Primary and fallback, skipping models already out of quota; spillover models only after
+    a quota error. If every model is exhausted, try them all anyway (quota may have reset)."""
+    main = _models()
+    usable = [m for m in main if m not in _exhausted]
+    yield from usable
+    if any(m in _exhausted for m in main):
+        spill = [m for m in SPILLOVER_MODELS if m not in main and m not in _exhausted]
+        yield from spill
+        if not usable and not spill:
+            yield from main
+
+
 def _generate(contents: list, config: types.GenerateContentConfig) -> str:
     last: Exception | None = None
-    for model in _models():
+    for model in _chain():
         start = time.monotonic()
         try:
             resp = _get_client().models.generate_content(model=model, contents=contents, config=config)
@@ -96,6 +124,8 @@ def _generate(contents: list, config: types.GenerateContentConfig) -> str:
             return text
         except Exception as e:  # SDK raises several error types; try the next model
             last = e
+            if _is_quota_error(e):
+                _exhausted.add(model)
             log.warning("gemini %s failed after %.2fs: %s", model, time.monotonic() - start, e)
     raise GeminiError(str(last)) from last
 
