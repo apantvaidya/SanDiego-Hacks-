@@ -44,7 +44,7 @@ Text "think i sprained my ankle" three times, switching profile with `#profile k
 - Prize tracks: Bright Data Data for Good, Neon, MLH Gemini API, Best Overall / Most Innovative, GoDaddy domain, DEV writing. See HANDOFF section 12.
 
 ## Claiming an issue (do this before writing any code)
-1. Check the issue is free: `gh issue view <n> --json labels,assignees,comments` shows no `in-progress` label and no "claimed" comment, `gh pr list --state open` has no PR for it, and `git ls-remote --heads origin` has no `issue-<n>-*` branch.
+1. Check the issue is free: `gh issue view <n> --json labels,assignees,comments` shows no `in-progress` label and no "claimed" comment, `gh pr list --state open` has no PR for it, and `git ls-remote --heads origin` has no `issue-<n>-*` branch. Run this for that exact issue right before claiming, and read who wrote each "Claimed by" comment; a list of in-progress numbers is not enough (that is how #11 got built twice).
 2. If it is taken, pick another issue. Do not work on it in parallel.
 3. Claim it: `gh issue edit <n> --add-label in-progress` and comment `Claimed by <name>'s agent, branch issue-<n>-<slug>`. Push the branch right away so others can see it.
 4. When the PR merges (or you give up), remove the `in-progress` label.
@@ -54,6 +54,13 @@ Text "think i sprained my ankle" three times, switching profile with `#profile k
 - Branch per issue: `issue-<number>-<slug>`. Open a PR that says `Closes #<number>`.
 - Stubs raise `NotImplementedError`. Keep the function signatures in `docs/interfaces.md` unless you update that doc in the same PR.
 - Tests go in `tests/`, named after the module (`tests/test_safety.py`). Run with `uv run pytest`.
+
+## Before you push or merge
+- **Push only after `uv run pytest` exits 0.** Check the exit code itself; piping through `tail` or `grep` hides it.
+- **Tests never use the production database.** Database tests run against `TEST_DATABASE_URL`, a separate Neon branch that `tests/conftest.py` resets to schema plus seeds at the start of each run. Without it they skip. Assert rules (in network, open now, nearest first), not exact row ids, so loading more data can't break them.
+- **Don't merge code that needs an unmerged PR.** If your code imports a module or function that only exists in another open PR, write "Depends on #N" in the PR and wait for #N to merge. `tests/test_imports.py` fails when an import doesn't resolve, including imports inside functions that unit tests fake.
+- **CI** (`.github/workflows/tests.yml`) runs `uv run pytest` on every PR without secrets: unit tests and import checks run, database and live tests skip. Don't merge a red PR.
+- Unit tests fake Gemini, Nominatim, Bright Data and Sendblue. Live calls only behind `RUN_LIVE_GEMINI=1` / `RUN_LIVE_GEO=1`.
 - Secrets live in `.env` (see `.env.example`). Never commit `.env`.
 
 ## Style
