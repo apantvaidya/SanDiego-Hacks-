@@ -125,3 +125,11 @@ def test_closed_locations_excluded_sunday_afternoon():
 @needs_db
 def test_limit_respected():
     assert len(find_candidates(UNINSURED, CareLevel.URGENT_CARE, UCSD, 15, limit=1, at=WED_1PM)) == 1
+
+
+@needs_db
+def test_widens_when_only_one_result():
+    convoy = GeoPoint(lat=32.828924, lon=-117.142415, label="Kearny Mesa")
+    assert len(find_candidates(UNINSURED, CareLevel.URGENT_CARE, convoy, 5, needs_xray=True, at=WED_1PM)) == 1
+    found, radius = find_candidates_widening(UNINSURED, CareLevel.URGENT_CARE, convoy, needs_xray=True, at=WED_1PM)
+    assert radius == 15 and "fhcsd_logan_heights" in {l.id for l in found}
