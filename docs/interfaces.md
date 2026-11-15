@@ -86,6 +86,7 @@ Inbound path: webhook (`app/main.py`) or poller (`app/messaging/poller.py`) -> `
 - `crawler/extract.py`: `extract_location(raw: dict) -> dict`  Gemini extraction into `locations` columns
 - `crawler/branch.py`: `create_branch(name) -> tuple[str, str]` (branch id, connection string), `delete_branch(branch_id)` (Neon API). **Never promote a branch:** it would erase users and conversations written to main after the branch was made.
 - `crawler/validate.py`: `validate(branch_conn, main_conn) -> list[str]`  empty list means pass. Checks row counts, null prices, hours parse, coordinates present, no big drop vs main. Logged to `crawl_runs`.
-- `crawler/swap.py`: `swap_into_main(branch_conn, main_conn) -> int`  one transaction: copy `locations` to `locations_prev`, delete, insert validated rows, commit. `rollback(main_conn)` restores from `locations_prev`.
+- `crawler/swap.py`: `swap_into_main(branch_conn, main_conn) -> int`  one transaction: copy `locations` to `locations_prev`, delete, insert validated rows, commit. `rollback(main_conn) -> int` restores from `locations_prev`.
+- `crawler/run.py`: CLI that ties it together (`--chg`, `--swap`, `--rollback`); logs every run in main's `crawl_runs`.
 - `crawler/chg_fhir.py`: `fetch_chg_locations() -> list[dict]`  CHG public FHIR provider directory (Da Vinci Plan-Net), cached in Neon, never called live. Base: `https://api-chgsd-prd.safhir.io/v1/api/provider-directory/`
 - `crawler/benefits/extract_plans.py`: `extract_plan(pdf_url: str) -> dict`  into `plans` columns
