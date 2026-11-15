@@ -28,6 +28,23 @@ Run tests:
 uv run pytest
 ```
 
+## Messaging (Sendblue)
+Tested Nov 15, 2026 on the free shared-line plan: outbound texts, inbound webhook, inbound polling, and photos all work.
+- Free plan: every recipient must be added as a contact in the Sendblue dashboard and text the line once first. Only the verified demo phone can use it.
+- Text and photo sent together arrive as one message (`content` + `media_url`).
+
+Run with a public webhook (needs `brew install cloudflared`):
+```bash
+uv run uvicorn app.main:app --port 8000
+cloudflared tunnel --url http://localhost:8000      # prints https://<random>.trycloudflare.com
+uv run python -m scripts.sendblue_setup webhook https://<random>.trycloudflare.com
+```
+The quick-tunnel URL changes each run, so re-register the webhook after restarting cloudflared.
+
+No tunnel? Poll instead: `MESSAGING_INBOUND=poll uv run uvicorn app.main:app --port 8000`.
+
+Other helpers: `uv run python -m scripts.sendblue_setup show | send "<text>" | inbox`.
+
 ## Layout
 ```
 app/
