@@ -47,6 +47,25 @@ TEMPLATES: dict[str, dict[str, str]] = {
         "fallback.911": "If it gets worse, call 911.",
         # ---- pipeline (#17) ---------------------------------------------------
         "pipeline.ask_zip": "I couldn't find that place in San Diego County. What's your ZIP code?",
+        # ---- onboarding (#10) -------------------------------------------------
+        "onboarding.welcome": "Hi, I'm Care Navigator. Text me any health question and I'll tell you what to do, where to go nearby, and what it should cost you.",
+        "onboarding.ask_card": "To start, send a photo of the front of your insurance card. No card? Reply NONE, MEDI-CAL, or OTHER.",
+        "onboarding.card_unreadable": "I couldn't read that card. Try another photo in good light, or type your insurance name. You can also reply NONE, MEDI-CAL, or OTHER.",
+        "onboarding.confirm_card": "Looks like {plan}. Right? (Y/N)",
+        "onboarding.your_insurance": "your insurance",
+        "onboarding.ask_medi_cal_plan": "Which Medi-Cal plan is on your card?\n1. Community Health Group\n2. Another plan or not sure",
+        "onboarding.ask_plan_name": "What's the name of your insurance? Type it as it appears on your card.",
+        "onboarding.ask_plan_name_or_options": "No problem. Type your insurance name, or reply NONE, MEDI-CAL, or OTHER.",
+        "onboarding.ask_household": "How many people are in your household, including you?",
+        "onboarding.ask_household_again": "Please reply with a number, like 1 or 4.",
+        "onboarding.ask_income": "What's your household's yearly income before taxes? ({n} people)",
+        "onboarding.income_under": "Under {high}",
+        "onboarding.income_between": "{low} to {high}",
+        "onboarding.income_over": "Over {low}",
+        "onboarding.income_skip": "5. Skip",
+        "onboarding.income_why": "This unlocks discounts at clinics. I only keep the range.",
+        "onboarding.ask_language": "English or Español? Reply 1 for English, 2 para Español.",
+        "onboarding.done": "You're set up with {plan}. Text me any health question, any time. I keep only your plan, household size and income range, never your card or member ID.",
     },
     "es": {
         # ---- render (#7) ------------------------------------------------------
@@ -86,6 +105,25 @@ TEMPLATES: dict[str, dict[str, str]] = {
         "fallback.911": "Si empeora, llama al 911.",
         # ---- pipeline (#17) ---------------------------------------------------
         "pipeline.ask_zip": "No encontré ese lugar en el condado de San Diego. ¿Cuál es tu código postal?",
+        # ---- onboarding (#10) -------------------------------------------------
+        "onboarding.welcome": "Hola, soy Care Navigator. Escríbeme cualquier pregunta de salud y te diré qué hacer, adónde ir cerca de ti y cuánto debería costarte.",
+        "onboarding.ask_card": "Para empezar, envía una foto del frente de tu tarjeta de seguro. ¿No tienes tarjeta? Responde NINGUNO, MEDI-CAL u OTRO.",
+        "onboarding.card_unreadable": "No pude leer esa tarjeta. Intenta otra foto con buena luz, o escribe el nombre de tu seguro. También puedes responder NINGUNO, MEDI-CAL u OTRO.",
+        "onboarding.confirm_card": "Parece que es {plan}. ¿Correcto? (S/N)",
+        "onboarding.your_insurance": "tu seguro",
+        "onboarding.ask_medi_cal_plan": "¿Qué plan de Medi-Cal aparece en tu tarjeta?\n1. Community Health Group\n2. Otro plan o no estoy seguro",
+        "onboarding.ask_plan_name": "¿Cómo se llama tu seguro? Escríbelo como aparece en tu tarjeta.",
+        "onboarding.ask_plan_name_or_options": "No hay problema. Escribe el nombre de tu seguro, o responde NINGUNO, MEDI-CAL u OTRO.",
+        "onboarding.ask_household": "¿Cuántas personas hay en tu hogar, contándote a ti?",
+        "onboarding.ask_household_again": "Responde con un número, por ejemplo 1 o 4.",
+        "onboarding.ask_income": "¿Cuál es el ingreso anual de tu hogar antes de impuestos? ({n} personas)",
+        "onboarding.income_under": "Menos de {high}",
+        "onboarding.income_between": "De {low} a {high}",
+        "onboarding.income_over": "Más de {low}",
+        "onboarding.income_skip": "5. Prefiero no decir",
+        "onboarding.income_why": "Esto te da descuentos en clínicas. Solo guardo el rango.",
+        "onboarding.ask_language": "English or Español? Reply 1 for English, 2 para Español.",
+        "onboarding.done": "Listo, quedaste registrado con {plan}. Escríbeme cualquier pregunta de salud cuando quieras. Solo guardo tu plan, el tamaño de tu hogar y el rango de ingresos, nunca tu tarjeta ni tu número de miembro.",
     },
 }
 
