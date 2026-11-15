@@ -202,6 +202,7 @@ def test_image_mime_sniffing():
     assert gemini._image_mime(b"\xff\xd8\xff\xe0rest") == "image/jpeg"
     assert gemini._image_mime(b"\x89PNG\r\n\x1a\nrest") == "image/png"
     assert gemini._image_mime(b"\x00\x00\x00\x18ftypheicrest") == "image/heic"
+    assert gemini._image_mime(b"%PDF-1.7 rest") == "application/pdf"
 
 
 # ------------------------------------------------------------------ live (real Gemini)
