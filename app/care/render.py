@@ -49,8 +49,10 @@ def _when(ts: datetime, lang: str) -> str:
 
 
 def format_cost(cost: CostEstimate | None, lang: str) -> str:
-    """The note (e.g. "estimated from your plan's summary") is shown only next to a number."""
+    """A plan-copay note ("estimated from your plan's summary") is shown only next to a
+    number; other notes (charity care, X-ray extra) always show."""
     has_amount = cost is not None and (cost.low is not None or cost.high is not None)
+    show_note = cost is not None and bool(cost.note) and (has_amount or cost.basis != "plan_copay")
     if cost is None or cost.basis == "unknown":
         text = t("cost.unknown", lang)
     elif cost.basis == "medi_cal":
@@ -69,7 +71,7 @@ def format_cost(cost: CostEstimate | None, lang: str) -> str:
             text = t("cost.self_pay", lang, amount=amount) if amount else t("cost.unknown", lang)
         else:
             text = amount or t("cost.unknown", lang)
-    if cost is not None and cost.note and has_amount:
+    if show_note:
         text = f"{text} ({cost.note})"
     return text
 
