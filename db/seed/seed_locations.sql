@@ -1,0 +1,5 @@
+-- Hand seeds so the pipeline can run before the crawl lands. Owned by the Neon setup issue.
+-- Use stable text ids (e.g. 'fhcsd_city_heights').
+-- Needs at least: 2 Kaiser urgent cares, 2 CHG in-network health centers, 1 FHCSD walk-in,
+-- 2 cash urgent cares with X-ray and self-pay prices, 1 ER. All in San Diego.
+-- Plans: 'kaiser_cc_silver', 'chg_medi_cal'.

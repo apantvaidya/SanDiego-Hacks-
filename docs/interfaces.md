@@ -1,0 +1,82 @@
+# Module interfaces
+
+These contracts let several agents build in parallel. Shared types live in `app/models.py`. If you change a signature here, update this doc and `app/models.py` in the same PR and mention it in the PR description.
+
+## Request flow
+
+```
+Sendblue webhook (app/main.py)
+  -> messaging.parse_inbound()            -> InboundMessage
+  -> conversation.router.handle(msg)      -> list[str] replies
+       |- STOP / HELP (always first; STOP sets users.opted_out)
+       |- commands (#profile, #followup, #reset)
+       |- onboarding steps (if profile incomplete)
+       |- safety.screen(text)              -> SafetyResult   (ALWAYS before any LLM call)
+       |- pipeline.first_reply(...)        -> Text 1 (first aid + "where are you?")
+       |- pipeline.options_reply(...)      -> Text 2 (2-3 option cards)
+  -> messaging.send_text(phone, reply) for each reply
+```
+
+## Contracts
+
+### messaging (`app/messaging/__init__.py` re-exports the active provider)
+Provider chosen by `MESSAGING_PROVIDER` (`sendblue` default, `textbee` fallback). Each provider module (`sendblue.py`, `textbee.py`) exposes the same three functions. If Sendblue's free plan has no inbound webhooks, `app/messaging/poller.py` polls for new messages and feeds them to the same handler.
+- `parse_inbound(payload: dict) -> InboundMessage`
+- `send_text(phone: str, text: str) -> None`
+- `download_media(url: str) -> bytes`  (inbound media CDN links expire, download immediately)
+
+### safety (`app/safety/keywords.py`)
+- `screen(text: str, language: str = "en") -> SafetyResult`
+  Pure function, no network. `SafetyResult.reply` is a fixed string (911, plus 988 for self-harm).
+
+### llm (`app/llm/gemini.py`)
+- `generate_json(prompt: str, schema: dict, image: bytes | None = None, system: str | None = None) -> dict`
+- `generate_text(prompt: str, system: str | None = None) -> str`
+
+### triage (`app/triage/assess.py`)
+- `first_aid_reply(text: str, profile: Profile) -> TriageResult`
+  Returns `red_flag=True` if Gemini's second-net check fires. Otherwise first-aid text (no diagnosis) ending with "Where are you right now?".
+- `level_of_care(text: str, profile: Profile) -> tuple[CareLevel, float]`
+- `bump_if_unsure(level: CareLevel, confidence: float, threshold: float = 0.7) -> CareLevel`  (pure)
+
+### geo (`app/geo/geocode.py`)
+- `extract_place(text: str) -> str | None`  Gemini pulls the place out ("I'm in La Jolla" -> "La Jolla")
+- `geocode(text: str) -> GeoPoint | None`  `sd_places` lookup (name or alias, also ZIP), then Nominatim (max 1 req/s, real User-Agent). None means the caller asks for a ZIP.
+
+### care
+- `app/care/find_care.py`: `find_candidates(profile: Profile, level: CareLevel, point: GeoPoint, radius_miles: float = 5, limit: int = 10) -> list[Location]`
+  One PostGIS query using the SQL function `is_open_now(hours)` (see `db/schema.sql` and HANDOFF section 6). Filters: `accepts ? plan_id OR accepts ? coverage_type`, open now, kind allowed for this level, `has_xray` when needed, within radius. Caller widens once to 15 miles if empty.
+- `app/care/rank.py`: `rank(candidates: list[Location], profile: Profile, symptom_text: str, level: CareLevel) -> list[RankedOption]`
+  Gemini returns IDs and reasons. Drop any ID not in `candidates`. Max 3.
+- `app/care/cost.py`: `estimate_cost(location: Location, profile: Profile, level: CareLevel) -> CostEstimate`  (pure plus DB lookup of plan benefits)
+- `app/care/verify.py`: `verify_live(location: Location) -> Verification`  (one Bright Data call, writes to `verifications`)
+- `app/care/render.py`: `render_options(options: list[RenderedOption], language: str) -> str`
+- `app/care/render.py`: `render_fallback(profile: Profile, language: str) -> str`
+
+### i18n (`app/i18n/templates.py`)
+- `t(key: str, language: str, **kwargs) -> str`
+
+### conversation
+- `app/conversation/router.py`: `handle(msg: InboundMessage) -> list[str]`
+- `app/conversation/onboarding.py`: `handle_onboarding(user: User, msg: InboundMessage) -> list[str]`
+- `app/conversation/onboarding.py`: `extract_card(image: bytes) -> CardExtraction`
+- `app/conversation/fpl.py`: `income_brackets(household_size: int) -> list[IncomeBracket]`  (from current HHS poverty guidelines)
+- `app/conversation/commands.py`: `handle_command(user: User, text: str) -> list[str] | None`  (None if not a command). Handles STOP, HELP, `#profile <label>`, `#followup`, `#reset`, `#whoami`.
+
+### followup (`app/followup/scheduler.py`)
+- `schedule_followup(user_id: UUID, topic: str, hours: int = 20) -> None`
+- `run_due() -> int`  (send due follow-ups, return count)
+- `followup_now(user_id: UUID) -> list[str]`  (used by `#followup`)
+
+### db (`app/db.py`)
+- `get_conn()` context manager returning a psycopg connection to `DATABASE_URL`.
+- Repository helpers live with the module that owns the table (users and profiles in conversation, locations in care, followups in followup).
+
+### crawler (`crawler/`)
+- `crawler/crawl.py`: `run_crawl(targets_path: str) -> list[dict]`  raw pages via Bright Data Web Unlocker
+- `crawler/extract.py`: `extract_location(raw: dict) -> dict`  Gemini extraction into `locations` columns
+- `crawler/branch.py`: `create_branch(name) -> tuple[str, str]` (branch id, connection string), `delete_branch(branch_id)` (Neon API). **Never promote a branch:** it would erase users and conversations written to main after the branch was made.
+- `crawler/validate.py`: `validate(branch_conn, main_conn) -> list[str]`  empty list means pass. Checks row counts, null prices, hours parse, coordinates present, no big drop vs main. Logged to `crawl_runs`.
+- `crawler/swap.py`: `swap_into_main(branch_conn, main_conn) -> int`  one transaction: copy `locations` to `locations_prev`, delete, insert validated rows, commit. `rollback(main_conn)` restores from `locations_prev`.
+- `crawler/chg_fhir.py`: `fetch_chg_locations() -> list[dict]`  CHG public FHIR provider directory (Da Vinci Plan-Net), cached in Neon, never called live. Base: `https://api-chgsd-prd.safhir.io/v1/api/provider-directory/`
+- `crawler/benefits/extract_plans.py`: `extract_plan(pdf_url: str) -> dict`  into `plans` columns

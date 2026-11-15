@@ -1,0 +1,1 @@
+-- About 40 San Diego neighborhoods and ZIP codes with coordinates (name, aliases, lat, lon).

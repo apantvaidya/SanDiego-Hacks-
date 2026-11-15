@@ -1,0 +1,10 @@
+# Crawl targets. Keep the list tight (Bright Data free tier is about 5,000 credits/month).
+# kind: urgent_care | fqhc | kaiser | er | hcai_charity
+urgent_care: []
+fqhc:
+  - name: Family Health Centers of San Diego (urgent care)
+    url: https://www.fhcsd.org/urgent
+  - name: Family Health Centers of San Diego (billing / sliding fee)
+    url: https://www.fhcsd.org/billing-and-insurance
+kaiser: []
+hcai_charity: []

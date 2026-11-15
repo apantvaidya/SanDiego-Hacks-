@@ -1,0 +1,50 @@
+# Care Navigator
+
+Text one number with any medical question. It knows your coverage and location, so it tells you what to do, where to go, and what it will cost.
+
+Built for the Bright Data "Data for Good" hackathon. San Diego only for now. Works for Kaiser, Medi-Cal (Community Health Group), and uninsured users.
+
+## Docs
+- [CLAUDE.md](CLAUDE.md): short context and rules for humans and agents
+- [docs/HANDOFF.md](docs/HANDOFF.md): every product decision, flows, demo script, research with sources
+- [docs/interfaces.md](docs/interfaces.md): module contracts so work can run in parallel
+- [docs/original-plan.md](docs/original-plan.md): first rough plan (superseded where it conflicts)
+
+## Setup
+```bash
+uv sync
+cp .env.example .env   # fill in keys
+uv run uvicorn app.main:app --reload --port 8000
+```
+
+Apply the schema to your Neon database:
+```bash
+psql "$DATABASE_URL" -f db/schema.sql
+psql "$DATABASE_URL" -f db/seed/seed_locations.sql
+```
+
+Run tests:
+```bash
+uv run pytest
+```
+
+## Layout
+```
+app/
+  main.py              FastAPI app and Sendblue webhook
+  models.py            shared data types (contract)
+  pipeline.py          end-to-end question flow
+  messaging/           Sendblue send, receive, media download
+  safety/              hard-coded red-flag screen
+  conversation/        state machine, onboarding, #commands
+  llm/                 Gemini client
+  triage/              first-aid text and level of care
+  geo/                 geocoding free-text locations
+  care/                candidate query, ranking, cost, live verify, rendering
+  i18n/                English and Spanish templates
+  followup/            next-day follow-up
+crawler/               Bright Data crawl into a Neon branch, validate, promote
+crawler/benefits/      plan benefit extraction (Kaiser, CHG)
+db/                    schema and seeds
+tests/
+```
