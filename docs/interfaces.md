@@ -47,8 +47,10 @@ Inbound path: webhook (`app/main.py`) or poller (`app/messaging/poller.py`) -> `
 - `geocode(text: str) -> GeoPoint | None`  `sd_places` lookup (name or alias, also ZIP), then Nominatim (max 1 req/s, real User-Agent). None means the caller asks for a ZIP.
 
 ### care
-- `app/care/find_care.py`: `find_candidates(profile: Profile, level: CareLevel, point: GeoPoint, radius_miles: float = 5, limit: int = 10) -> list[Location]`
-  One PostGIS query using the SQL function `is_open_now(hours)` (see `db/schema.sql` and HANDOFF section 6). Filters: `accepts ? plan_id OR accepts ? coverage_type`, open now, kind allowed for this level, `has_xray` when needed, within radius. Caller widens once to 15 miles if empty.
+- `app/care/find_care.py`: `find_candidates(profile: Profile, level: CareLevel, point: GeoPoint, radius_miles: float = 5, limit: int = 10, *, needs_xray: bool = False, at: datetime | None = None) -> list[Location]`
+  One PostGIS query using the SQL function `is_open_now(hours)` (see `db/schema.sql` and HANDOFF section 6). Filters: `accepts ? plan_id OR accepts ? coverage_type`, open now, kind allowed for this level (Kaiser members: Kaiser sites only, plus ERs at the ER level), walk-in for urgent care, `needs_xray` drops places known to lack X-ray (unknown stays), within radius. Nearest first, `distance_miles` set. `at` pins the clock for tests and demos.
+- `app/care/find_care.py`: `find_candidates_widening(...same args...) -> tuple[list[Location], float]`  runs at `radius_miles`, then once at 15 miles if empty; returns the radius used. Empty means send `render_fallback`.
+- `app/care/find_care.py`: `is_open_now(hours: dict, at: datetime | None = None) -> bool` and `closes_at(hours, at=None) -> time | None`  pure Python mirrors of the SQL function, for rendering "open until 8 PM".
 - `app/care/rank.py`: `rank(candidates: list[Location], profile: Profile, symptom_text: str, level: CareLevel) -> list[RankedOption]`
   Gemini returns IDs and reasons. Drop any ID not in `candidates`. Max 3.
 - `app/care/cost.py`: `estimate_cost(location: Location, profile: Profile, level: CareLevel) -> CostEstimate`  (pure plus DB lookup of plan benefits)
