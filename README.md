@@ -48,3 +48,19 @@ crawler/benefits/      plan benefit extraction (Kaiser, CHG)
 db/                    schema and seeds
 tests/
 ```
+
+## Work items
+Each GitHub issue lists the files it owns, so agents can work in parallel without conflicts.
+
+| Start now (P0) | Next (P1) | Later (P2) |
+|---|---|---|
+| #1 Messaging round trip (test Sendblue first) | #5 Geocoding | #16 Follow-up |
+| #2 Neon setup, schema, seeds | #8 Cost estimator | |
+| #3 Safety red-flag screen | #10 Text onboarding | |
+| #4 Gemini client + triage | #13 Crawl branch, validate, swap | |
+| #6 Candidate query | #14 Plan benefits | |
+| #7 Ranking + rendering | #15 Live verify | |
+| #9 Conversation router | #18 Demo, video, Devpost | |
+| #11 CHG FHIR network | | |
+| #12 Bright Data crawl | | |
+| #17 Pipeline integration (after the rest) | | |
