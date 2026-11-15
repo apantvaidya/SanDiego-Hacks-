@@ -88,11 +88,14 @@ def find_candidates(profile: Profile, level: CareLevel, point: GeoPoint,
 def find_candidates_widening(profile: Profile, level: CareLevel, point: GeoPoint,
                              radius_miles: float = 5, limit: int = 10, *,
                              needs_xray: bool = False, at: datetime | None = None,
-                             wide_radius_miles: float = WIDE_RADIUS_MILES) -> tuple[list[Location], float]:
-    """Try radius_miles, then widen once. Returns (candidates, radius used). Empty means
-    the caller sends the honest fallback (#7 render_fallback)."""
+                             wide_radius_miles: float = WIDE_RADIUS_MILES,
+                             min_results: int = 2) -> tuple[list[Location], float]:
+    """Try radius_miles, then widen once if fewer than min_results came back (the reply
+    promises 2 or 3 options, and an uninsured user should see the clinic-vs-urgent-care
+    tradeoff). Returns (candidates, radius used). Empty means the caller sends the honest
+    fallback (#7 render_fallback)."""
     found = find_candidates(profile, level, point, radius_miles, limit, needs_xray=needs_xray, at=at)
-    if found or wide_radius_miles <= radius_miles:
+    if len(found) >= min_results or wide_radius_miles <= radius_miles:
         return found, radius_miles
     return find_candidates(profile, level, point, wide_radius_miles, limit,
                            needs_xray=needs_xray, at=at), wide_radius_miles
