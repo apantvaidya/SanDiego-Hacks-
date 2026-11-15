@@ -55,7 +55,7 @@ Inbound path: webhook (`app/main.py`) or poller (`app/messaging/poller.py`) -> `
   Gemini returns IDs and reasons. Drop any ID not in `candidates`. Max 3.
 - `app/care/cost.py`: `estimate_cost(location: Location, profile: Profile, level: CareLevel) -> CostEstimate`  (pure plus DB lookup of plan benefits)
 - `app/care/verify.py`: `verify_live(location: Location) -> Verification`  (one Bright Data call, writes to `verifications`)
-- `app/care/render.py`: `render_options(options: list[RenderedOption], language: str) -> str`
+- `app/care/render.py`: `render_options(options: list[RenderedOption], language: str, *, now: datetime | None = None) -> str`  (`now` pins the clock for "open until" and "verified X min ago")
 - `app/care/render.py`: `render_fallback(profile: Profile, language: str) -> str`
 
 ### i18n (`app/i18n/templates.py`)
