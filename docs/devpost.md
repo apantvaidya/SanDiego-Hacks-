@@ -66,9 +66,10 @@ Python, FastAPI, Sendblue, Gemini API, Neon, PostGIS, Bright Data, FHIR (Da Vinc
 | **Best Overall / Most Innovative** | Insurance-agnostic navigation over iMessage: the same question gets three different correct answers for Kaiser, Medi-Cal, and uninsured users. |
 | **MLH: Best Domain from GoDaddy Registry** | One-page site in `site/` (domain to be registered with the MLH code). |
 
-## Honest status (checked Sun Nov 15, 11:00 AM)
+## Honest status (checked Sun Nov 15, 11:10 AM)
 
 - Kaiser copay: loaded ($50 urgent care, $400 ER, $50 primary care) from Covered California's 2026 Silver 70 design (#14 closed).
-- Live verification: CHG directory sites are re-checked at answer time (#15). Clinic websites need the Bright Data Web Unlocker zone; PR #45 fixes crawl targets found with the new zone.
-- AFC's self-pay price: PR #45 found AFC's site lists no price, so don't quote $199 on stage until it's confirmed.
+- Bright Data crawl (#12): ran live Sunday 11:04 AM through a Web Unlocker zone, loaded into a Neon branch, passed validation, and was swapped into main: 86 places, uninsured coverage up from 5 to 42, corrected Kaiser and AFC hours (PR #45).
+- Live verification: CHG directory sites and clinic websites are re-checked at answer time (#15). Kaiser's page often takes longer than the 4 s limit, so Kaiser answers show "checked [crawl time]" instead of "verified".
+- Cash prices: none of the urgent care sites we crawl lists a self-pay price, so uninsured answers say "not confirmed, ask when you call" instead of a number.
 - The free Sendblue line only reaches verified phones, so judges watch the demo phone (or the local chat page, `uv run python -m app.local`).

@@ -5,20 +5,23 @@ Judging: **Sunday Nov 15, 12:30 to 2:30 PM**, Qualcomm Room, science-fair style.
 The demo runs **live on one phone** at real time. That matters on Sunday afternoon:
 
 - FHCSD's walk-in clinics (the $25 sliding fee) are **closed Sundays**, so the uninsured answer will be cash urgent care, not FHCSD. That is the correct answer and a good moment: "it knows what's open right now." Mention the $25 option as what the same person gets on a weekday.
-- What judges will see at 1 PM Sunday near UCSD (rendered from the live database Saturday night):
+- What judges will see on Sunday afternoon with the location **UCSD** (full rehearsal run Sunday 11:08 AM, after the Bright Data crawl was swapped into main):
 
-| Profile | #1 option | Cost shown |
-|---|---|---|
-| Kaiser | Kaiser San Diego Medical Center Urgent Care, 7.0 mi, open until 9 PM, X-ray | "your plan's copay (amount not confirmed)" until #14's extraction is run with `--apply` (needs Gemini credits; checked 02:15 AM, `plans` still has no Kaiser copay) |
-| Medi-Cal (CHG) | Marque Urgent Care UTC, 2.4 mi, open until 6 PM | $0 with Medi-Cal |
-| Uninsured | AFC Urgent Care Clairemont / Mira Mesa, about 5 mi, open until 8 PM, X-ray | $199 self-pay at Mira Mesa (visit only, X-ray extra); Clairemont "not confirmed" |
+| Profile | #1 option | Cost shown | Freshness label |
+|---|---|---|---|
+| Kaiser | Kaiser San Diego Medical Center Urgent Care, 7.0 mi, open until 9 PM, X-ray | $50 copay (estimated from the plan summary) | "checked 11:04 AM" (the live Bright Data check goes over the 4 s limit, so it falls back; this reply takes about 7 s) |
+| Medi-Cal (CHG) | Marque Urgent Care UTC, 2.4 mi, open until 6 PM (#2 MD Today Valley Centre) | $0 with Medi-Cal | "verified 0 min ago" (live CHG directory check) |
+| Uninsured | UC San Diego Health Urgent Care, 0.6 mi, open until 8 PM, X-ray (#2 and #3 AFC Clairemont and Mira Mesa, open until 5 PM) | "not confirmed, ask when you call" (no site lists a cash price) | "verified 0 min ago" (live Bright Data check) |
+
+"my chest hurts and my arm is numb" gets the fixed 911 reply in under a second. `#followup` and the reply `1` both work.
 
 ## Before judging (checklist)
 
 - [ ] Server running (`uv run uvicorn app.main:app --port 8000`), tunnel up, webhook registered to the current tunnel URL (`uv run python -m scripts.sendblue_setup webhook <url>`)
 - [ ] Gemini has credits or billing (free tier is 20 requests per day per model; see PR #34)
 - [ ] `.env`: `GEMINI_MODEL=gemini-3.5-flash-lite`
-- [ ] Kaiser copay loaded: `uv run python -m crawler.benefits.extract_plans`, check the numbers, then `--apply` (#14)
+- [x] Kaiser copay loaded ($50 urgent care, $400 ER, from the Covered California plan PDF) (#14)
+- [x] Bright Data crawl swapped into main Sunday 11:04 AM (#12): 86 places, 42 take uninsured
 - [ ] Demo phone texted the line once today; `#reset` then `#profile kaiser` works
 - [ ] Phone on Do Not Disturb, screen mirroring or a big font
 - [ ] Backup: screen recording of a full run, in case Wi-Fi or Gemini fails at the table
@@ -28,11 +31,11 @@ The demo runs **live on one phone** at real time. That matters on Sunday afterno
 1. "Most people don't know their copay, their network, or what a visit costs when they need care. We hold that for them. You just text."
 2. `#profile kaiser`, then text: **think i sprained my ankle**
    - Text 1 arrives in about 3 s: first aid (rest, ice, compression, elevation), when to go to the ER, "Where are you right now?"
-   - Reply **UCSD**. Text 2: Kaiser urgent care, open until 9, X-ray on site, Kaiser advice line.
+   - Reply **UCSD**. Text 2 (about 7 s): Kaiser San Diego Medical Center urgent care, open until 9, X-ray on site, $50 copay.
 3. `#profile medi_cal`, same two texts. "Same question. Now it's Marque Urgent Care, 2.4 miles, $0, because it's in Community Health Group's Medi-Cal network. That network comes from CHG's own public provider directory API."
-4. `#profile uninsured`, same two texts. "No insurance: AFC with X-ray and its listed self-pay price, open now. On a weekday this person also gets Family Health Centers' $25 walk-in visit, which it skips today because it's closed Sundays."
+4. `#profile uninsured`, same two texts. "No insurance: UC San Diego Health urgent care, 0.6 miles, X-ray, open now, and walk-in clinics that take self-pay. They don't publish a price, so it says 'ask when you call' instead of making one up. On a weekday this person also gets Family Health Centers' $25 walk-in visit, which it skips today because it's closed Sundays."
 5. Safety: text **my chest hurts and my arm is numb**. Instant fixed 911 reply, no AI involved. "Red flags are caught in code before the model sees anything."
-6. `#followup`: "How's the ankle? 1 better, 2 same, 3 worse." "It checks back the next day."
+6. `#followup`: "How are you feeling now? Reply 1 better, 2 same, 3 worse." Reply `1`. "It checks back the next day."
 
 "Same question, three different correct answers, and it never makes up a clinic."
 
