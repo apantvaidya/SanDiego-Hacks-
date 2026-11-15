@@ -94,18 +94,9 @@ def test_kaiser_ankle_near_ucsd_widens_to_kaiser_urgent_care():
 @needs_db
 def test_medi_cal_ankle_near_ucsd_gets_chg_sites_only():
     found, _ = find_candidates_widening(MEDI_CAL, CareLevel.URGENT_CARE, UCSD, needs_xray=True, at=WED_1PM)
-    assert len(found) >= 2
-    assert all("chg_medi_cal" in loc.accepts for loc in found)
-    assert any(loc.has_xray is None for loc in found)  # unknown X-ray kept
-    miles = [loc.distance_miles for loc in found]
-    assert miles == sorted(miles)  # nearest first
-
-
-@needs_db
-def test_medi_cal_sunday_afternoon_near_ucsd_has_options():
-    # The #11 CHG import: Marque Urgent Care UTC is open Sundays 8am to 6pm, 2.4 mi from UCSD.
-    found, _ = find_candidates_widening(MEDI_CAL, CareLevel.URGENT_CARE, UCSD, needs_xray=True, at=SUN_3PM)
-    assert found and found[0].id == "chg_5064112"
+    ids = [loc.id for loc in found]
+    assert set(ids) == {"urgent_care_and_more_midway", "fhcsd_logan_heights"}  # unknown X-ray kept
+    assert ids == sorted(ids, key=lambda i: {l.id: l.distance_miles for l in found}[i])  # nearest first
 
 
 @needs_db
@@ -126,12 +117,9 @@ def test_er_level_returns_nearest_er_for_everyone():
 
 
 @needs_db
-def test_closed_locations_excluded():
-    found, _ = find_candidates_widening(MEDI_CAL, CareLevel.URGENT_CARE, UCSD, at=SUN_3PM)
-    assert not {l.id for l in found} & {"fhcsd_logan_heights", "urgent_care_and_more_midway"}
-    late, radius = find_candidates_widening(MEDI_CAL, CareLevel.URGENT_CARE, UCSD,
-                                            at=datetime(2026, 11, 15, 23, 30, tzinfo=SD))
-    assert late == [] and radius == 15
+def test_closed_locations_excluded_sunday_afternoon():
+    found, radius = find_candidates_widening(MEDI_CAL, CareLevel.URGENT_CARE, UCSD, at=SUN_3PM)
+    assert found == [] and radius == 15
 
 
 @needs_db

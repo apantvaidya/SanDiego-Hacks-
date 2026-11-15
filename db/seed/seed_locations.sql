@@ -83,23 +83,21 @@ VALUES
   -- Cash urgent care. AFC's site: 8am to 8pm, 7 days, on-site digital X-ray, walk-ins welcome.
   -- Self-pay $199 visit is a third-party listing (Solv), not confirmed with AFC (HANDOFF section 8);
   -- X-ray is extra ($139 to $169 per the same listing). Confirm before saying it on stage.
-  -- In CHG's network: CHG FHIR Location CHG4107493 (added by #11).
   ('afc_mira_mesa', 'AFC Urgent Care Mira Mesa', 'urgent_care',
    ST_SetSRID(ST_MakePoint(-117.1458344, 32.9143312), 4326)::geography,
    '8260 Mira Mesa Blvd Suite A, San Diego, CA 92126', '(858) 900-3550',
    '{"mon":[["08:00","20:00"]],"tue":[["08:00","20:00"]],"wed":[["08:00","20:00"]],"thu":[["08:00","20:00"]],"fri":[["08:00","20:00"]],"sat":[["08:00","20:00"]],"sun":[["08:00","20:00"]]}',
-   true, true, '["uninsured", "chg_medi_cal"]', 199, NULL, NULL,
+   true, true, '["uninsured"]', 199, NULL, NULL,
    'https://www.afcurgentcare.com/mira-mesa/',
    '2026-11-15 00:30:00-08'),
 
   -- Cash urgent care. AFC's X-ray page: 8am to 8pm, 7 days, on-site digital X-ray, walk in anytime.
   -- (A different AFC page lists 8am to 5pm on weekends; #12 should settle it.) Visit price unknown.
-  -- In CHG's network: CHG FHIR Location CHG4107496 (added by #11).
   ('afc_clairemont', 'AFC Urgent Care Clairemont', 'urgent_care',
    ST_SetSRID(ST_MakePoint(-117.1787468, 32.8191927), 4326)::geography,
    '5671 Balboa Ave, San Diego, CA 92111', '(858) 800-2880',
    '{"mon":[["08:00","20:00"]],"tue":[["08:00","20:00"]],"wed":[["08:00","20:00"]],"thu":[["08:00","20:00"]],"fri":[["08:00","20:00"]],"sat":[["08:00","20:00"]],"sun":[["08:00","20:00"]]}',
-   true, true, '["uninsured", "chg_medi_cal"]', NULL, NULL, NULL,
+   true, true, '["uninsured"]', NULL, NULL, NULL,
    'https://www.afcurgentcare.com/clairemont/patient-services/x-ray',
    '2026-11-15 00:30:00-08'),
 
