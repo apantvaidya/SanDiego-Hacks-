@@ -142,3 +142,11 @@ def test_t_fallbacks():
 def test_every_spanish_key_has_english():
     assert set(TEMPLATES["es"]) <= set(TEMPLATES["en"])
     assert set(TEMPLATES["en"]) == set(TEMPLATES["es"])
+
+
+@pytest.mark.parametrize("raw,shown", [("(877)-693-6266", "(877) 693-6266"), ("+18776936266", "(877) 693-6266"),
+                                       ("1-833-574-2273", "(833) 574-2273"), ("858.900.3550", "(858) 900-3550"),
+                                       ("(619) 555-0100 ext 2", "(619) 555-0100 ext 2"), ("211", "211")])
+def test_format_phone(raw, shown):
+    from app.care.render import format_phone
+    assert format_phone(raw) == shown

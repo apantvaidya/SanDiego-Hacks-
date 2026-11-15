@@ -182,3 +182,15 @@ def test_bare_words_that_are_questions_stay_questions(phone):
 def test_profile_reply_uses_plain_names(phone):
     reply = send(phone, "#profile medi_cal")[0]
     assert "Community Health Group" in reply and "chg_medi_cal" not in reply
+
+
+def test_safety_after_an_answer_keeps_followup(phone):
+    """Demo order: answer, then the chest-pain text, then #followup."""
+    send(phone, "#profile uninsured")
+    user = store.get_or_create_user(phone)
+    store.set_conversation(user.id, "idle", {"symptom_text": "think i sprained my ankle",
+                                             "last_level_of_care": "urgent_care",
+                                             "recommended_location_ids": ["a"]})
+    assert "911" in send(phone, "my chest hurts and my arm is numb")[0]
+    assert store.get_conversation(user.id)[1]["symptom_text"] == "think i sprained my ankle"
+    assert "sprained my ankle" in send(phone, "#followup")[0]

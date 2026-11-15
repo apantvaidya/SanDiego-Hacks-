@@ -9,6 +9,7 @@ from datetime import datetime, timezone
 import pytest
 
 from app import pipeline
+from app.followup.scheduler import followup_context
 from app.llm.gemini import GeminiError
 from app.models import (CareLevel, CostEstimate, CoverageType, GeoPoint, InboundMessage, Location, Profile,
                         RankedOption, TriageResult, Verification)
@@ -69,6 +70,7 @@ def env(monkeypatch):
     monkeypatch.setitem(sys.modules, "app.care.verify", verify_mod)
     sched = types.ModuleType("app.followup.scheduler")
     sched.schedule_followup = lambda uid, topic, hours=20: calls["followup"].append(topic)
+    sched.followup_context = followup_context
     monkeypatch.setitem(sys.modules, "app.followup.scheduler", sched)
     return store, calls
 
@@ -193,3 +195,13 @@ def test_verify_not_implemented_is_skipped(env):
 ])
 def test_needs_xray(text, expected):
     assert pipeline.needs_xray(text) is expected
+
+
+def test_red_flag_keeps_the_last_answer_for_followup(env, monkeypatch):
+    store, _ = env
+    p = prof()
+    done = {"symptom_text": "ankle", "last_level_of_care": "urgent_care", "recommended_location_ids": ["a"]}
+    store.set_conversation(p.user_id, "idle", done)
+    monkeypatch.setattr(pipeline, "first_aid_reply", lambda text, p: TriageResult(True, "Call 911"))
+    assert pipeline.first_reply(msg("his face is drooping"), p) == ["Call 911"]
+    assert store.get_conversation(p.user_id) == ("idle", done)

@@ -196,3 +196,13 @@ def test_db_schedule_respects_stop_and_one_pending():
             assert conn.execute("SELECT count(*) n FROM followups WHERE user_id = %s", (u.id,)).fetchone()["n"] == 0
     finally:
         store.delete_user(u.id)
+
+
+def test_followup_context_keeps_only_finished_answers():
+    from app.followup.scheduler import followup_context
+    done = {"symptom_text": "ankle", "last_level_of_care": "urgent_care", "recommended_location_ids": ["a"],
+            "extra": 1}
+    assert followup_context(done) == {"symptom_text": "ankle", "last_level_of_care": "urgent_care",
+                                      "recommended_location_ids": ["a"]}
+    assert followup_context({"symptom_text": "ankle", "level_of_care": "urgent_care"}) == {}  # mid-question
+    assert followup_context(None) == {}

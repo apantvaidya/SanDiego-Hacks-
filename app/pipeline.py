@@ -82,7 +82,10 @@ def first_reply(msg: InboundMessage, profile: Profile) -> list[str]:
     store = _store()
     if triage.red_flag:
         level_future.cancel()
-        store.set_conversation(profile.user_id, "idle", {})
+        from app.followup.scheduler import followup_context
+
+        _, old_context = store.get_conversation(profile.user_id)
+        store.set_conversation(profile.user_id, "idle", followup_context(old_context))
         return [triage.reply]
 
     context: dict = {"symptom_text": msg.text}
