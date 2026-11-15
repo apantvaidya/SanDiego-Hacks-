@@ -19,6 +19,8 @@ after_answer(msg, profile, context): the next message after Text 2 (router, whil
     database; "update" (more about the same problem, like "it might be broken") gets fresh
     first aid plus options for the saved location, without asking where they are again; "other"
     (thanks, ok) gets a short reply; "new" returns None and the router starts a new question.
+    "card" (or the words CARD, front desk, tarjeta, recepción) gets a front desk card: a short
+    note in English to show at check-in, built in code from the profile and the saved answer.
 
 Latency: Text 2 must arrive in about 10 s. Measured parts: sd_places hit about 0 s
 (Gemini place extraction about 1 s otherwise), candidate query under 0.5 s, rank about 1 s.
@@ -195,7 +197,7 @@ def _options_at(profile: Profile, symptom_text: str, level_value: str, conf: flo
     _finish(profile, symptom_text, level, [loc.id for loc in chosen], point)
     log.info("options_reply: %d options, level %s, %.0f mi, %.1fs", len(options), level.value, radius,
              time.monotonic() - start)
-    return [text]
+    return [f"{text}\n\n{t('pipeline.card_hint', lang)}"]
 
 
 # --------------------------------------------------------------------------- after Text 2
@@ -206,6 +208,7 @@ AFTER_SYSTEM = """\
 A person texted a health assistant about a problem and already got first-aid steps and a list
 of nearby places to go. Now they sent another message. Sort it:
 directions: they want to know how to get to a place we sent, its address, or a map.
+card: they want something to show or say at the front desk or check-in.
 update: more about the same problem (it hurts more, it might be broken, it is swelling, it is
   bleeding again, a new detail about it).
 new: a different health problem or a new question unrelated to the first one.
@@ -213,7 +216,7 @@ other: thanks, ok, goodbye, or anything else that needs no new advice."""
 
 AFTER_SCHEMA = {
     "type": "object",
-    "properties": {"intent": {"type": "string", "enum": ["directions", "update", "new", "other"]}},
+    "properties": {"intent": {"type": "string", "enum": ["directions", "card", "update", "new", "other"]}},
     "required": ["intent"],
 }
 
@@ -229,7 +232,15 @@ def is_recent(context: dict, now: datetime | None = None) -> bool:
     return (now or datetime.now(timezone.utc)) - answered <= RECENT
 
 
+_CARD_WORDS = re.compile(r"^\s*(card|front desk( card)?|tarjeta|recepci[oó]n)\s*[.!?]*\s*$", re.IGNORECASE)
+_DIRECTIONS_WORDS = re.compile(r"^\s*(directions?|direcciones|map|mapa)\s*[.!?]*\s*$", re.IGNORECASE)
+
+
 def _sort(prev: str, text: str) -> str:
+    if _CARD_WORDS.match(text or ""):  # the exact words our replies offer: no Gemini call
+        return "card"
+    if _DIRECTIONS_WORDS.match(text or ""):
+        return "directions"
     try:
         out = generate_json(prompt=f"First message: {prev}\nNew message: {text}", schema=AFTER_SCHEMA,
                             system=AFTER_SYSTEM)
@@ -237,7 +248,7 @@ def _sort(prev: str, text: str) -> str:
     except GeminiError:
         log.exception("after_answer: Gemini failed; treating it as an update")
         intent = "update"  # the safe reading: re-answer with care options
-    return intent if intent in ("directions", "update", "new", "other") else "update"
+    return intent if intent in ("directions", "card", "update", "new", "other") else "update"
 
 
 def _locations_by_id(ids: list[str]) -> list[dict]:
@@ -258,6 +269,67 @@ def directions_text(rows: list[dict], lang: str) -> str:
     return "\n\n".join(lines)
 
 
+COVERAGE_LINE = {
+    "medi_cal": "Medi-Cal",
+    "uninsured": "No insurance, self-pay. Please tell me about any discount or sliding fee.",
+}
+
+
+def _coverage_line(profile: Profile) -> str:
+    ctype = getattr(profile.coverage_type, "value", profile.coverage_type)
+    plan = None
+    if profile.plan_id:
+        try:
+            from app.db import get_conn
+
+            with get_conn() as conn:
+                plan = conn.execute("SELECT insurer, plan_name FROM plans WHERE id = %s",
+                                    (profile.plan_id,)).fetchone()
+        except Exception:
+            log.exception("front desk card: plan lookup failed")
+    if plan and plan.get("plan_name"):
+        return plan["plan_name"]
+    if ctype == "medi_cal" and profile.insurer and "medi" not in profile.insurer.lower():
+        return f"Medi-Cal through {profile.insurer}"
+    if ctype in COVERAGE_LINE:
+        return COVERAGE_LINE[ctype]
+    return profile.insurer or "Insurance card with me"
+
+
+TRANSLATE_SCHEMA = {"type": "object", "properties": {"english": {"type": "string"}}, "required": ["english"]}
+
+
+def _reason_in_english(text: str, lang: str) -> str:
+    """The person's own words; translated to English only when they wrote in Spanish."""
+    if lang != "es":
+        return text
+    try:
+        out = generate_json(prompt=text, schema=TRANSLATE_SCHEMA,
+                            system="Translate this patient's message to plain English. Translate only; add nothing.")
+        english = str(out.get("english") or "").strip()
+        return english or text
+    except GeminiError:
+        log.exception("front desk card: translation failed, using their words")
+        return text
+
+
+def front_desk_card(profile: Profile, context: dict, place: dict | None) -> str:
+    """A note to show at check-in. Staff read English; the person's language is named so the
+    clinic can offer an interpreter. No member ID (we never store it)."""
+    lang = _lang(profile)
+    reason = _reason_in_english(context.get("symptom_text") or "", lang)
+    lines = [t("pipeline.card_intro", lang), "", "FRONT DESK CARD"]
+    if reason:
+        lines.append(f"Reason for visit: {reason}")
+    lines.append(f"Coverage: {_coverage_line(profile)}")
+    if lang == "es":
+        lines.append("Language: Spanish. Please offer a Spanish interpreter.")
+    if place:
+        lines.append(f"Here for: {place['name']}")
+    lines.append("I have my ID and insurance card with me." if getattr(profile.coverage_type, "value", profile.coverage_type) != "uninsured" else "I have my ID with me.")
+    return "\n".join(lines)
+
+
 def after_answer(msg: InboundMessage, profile: Profile, context: dict) -> list[str] | None:
     """The next message after Text 2. None means: a new question, let the router start over."""
     lang = _lang(profile)
@@ -269,6 +341,13 @@ def after_answer(msg: InboundMessage, profile: Profile, context: dict) -> list[s
         return None
     if intent == "other":
         return [t("pipeline.after_other", lang)]
+    if intent == "card":
+        try:
+            rows = _locations_by_id(context["recommended_location_ids"][:1])
+        except Exception:
+            log.exception("after_answer: could not load the #1 location")
+            rows = []
+        return [front_desk_card(profile, context, rows[0] if rows else None)]
     if intent == "directions":
         try:
             rows = _locations_by_id(context["recommended_location_ids"])
