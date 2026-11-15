@@ -46,7 +46,8 @@ def env(monkeypatch):
     monkeypatch.setattr(pipeline, "level_of_care", fake_level)
     monkeypatch.setattr(pipeline, "first_aid_reply",
                         lambda text, p: TriageResult(False, "Rest and ice.\n\nWhere are you right now?"))
-    monkeypatch.setattr(pipeline, "extract_place", lambda text: None if "home" in text else text)
+    no_place = ("home", "think i sprained my ankle", "his face is drooping")  # texts that name no place
+    monkeypatch.setattr(pipeline, "extract_place", lambda text: None if any(n in text for n in no_place) else text)
     monkeypatch.setattr(pipeline, "geocode", lambda place: GeoPoint(32.88, -117.23, place))
     cands = [loc("a", miles=1.0), loc("b", "fqhc", 3.0), loc("c", miles=4.0)]
 
@@ -328,3 +329,20 @@ def test_front_desk_card_spanish_translates_and_asks_for_interpreter(env, monkey
     assert out.startswith("Muestra esto")
     assert "Reason for visit: I think I sprained my ankle" in out
     assert "Please offer a Spanish interpreter" in out
+
+
+def test_place_in_first_message_answers_without_asking(env):
+    store, calls = env
+    p = prof()
+    out = pipeline.first_reply(msg("I just sprained my ankle on ucsd campus"), p)
+    assert out[0] == "Rest and ice." and out[1].startswith("b:True|a:False")  # no "Where are you", options now
+    assert calls["find"] == [(CareLevel.URGENT_CARE, True)]
+    assert store.get_conversation(p.user_id)[0] == "idle"
+
+
+def test_first_message_place_lookup_failure_still_asks(env, monkeypatch):
+    store, _ = env
+    monkeypatch.setattr(pipeline, "extract_place", lambda text: (_ for _ in ()).throw(RuntimeError("gemini down")))
+    p = prof()
+    assert pipeline.first_reply(msg("sprained my ankle at ucsd"), p) == ["Rest and ice.\n\nWhere are you right now?"]
+    assert store.get_conversation(p.user_id)[0] == "awaiting_location"
