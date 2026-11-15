@@ -50,17 +50,11 @@ tests/
 ```
 
 ## Work items
-Each GitHub issue lists the files it owns, so agents can work in parallel without conflicts.
+Each GitHub issue lists the files it owns, so agents can work in parallel without conflicts. Owner labels: `angad` and `aran`.
 
-| Start now (P0) | Next (P1) | Later (P2) |
+| Owner | Focus | Issues |
 |---|---|---|
-| #1 Messaging round trip (test Sendblue first) | #5 Geocoding | #16 Follow-up |
-| #2 Neon setup, schema, seeds | #8 Cost estimator | |
-| #3 Safety red-flag screen | #10 Text onboarding | |
-| #4 Gemini client + triage | #13 Crawl branch, validate, swap | |
-| #6 Candidate query | #14 Plan benefits | |
-| #7 Ranking + rendering | #15 Live verify | |
-| #9 Conversation router | #18 Demo, video, Devpost | |
-| #11 CHG FHIR network | | |
-| #12 Bright Data crawl | | |
-| #17 Pipeline integration (after the rest) | | |
+| **Angad** | Messaging, conversation, safety, Bright Data, demo | #1 Sendblue round trip (P0, first), #3 Safety, #9 Router, #10 Onboarding, #5 Geocoding, #12 Bright Data crawl, #15 Live verify, #16 Follow-up, #18 Demo + Devpost |
+| **Aran** | Neon, Gemini, care logic, data in the DB | #2 Neon setup (P0, first), #4 Gemini + triage (P0, first), #6 Candidate query, #7 Ranking + rendering, #8 Cost, #11 CHG FHIR, #13 Crawl branch + swap, #14 Plan benefits, #17 Pipeline integration |
+
+Handoffs between owners: #12 crawl rows (Angad) feed #13 swap (Aran). #9 router (Angad) calls #17 pipeline (Aran). #5 geocoding (Angad) reads `sd_places` seeded in #2 (Aran).

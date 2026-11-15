@@ -44,7 +44,7 @@ Text "think i sprained my ankle" three times, switching profile with `#profile k
 - Prize tracks: Bright Data Data for Good, Neon, MLH Gemini API, Best Overall / Most Innovative, GoDaddy domain, DEV writing. See HANDOFF section 12.
 
 ## Working in this repo (for agents)
-- Work is split into GitHub issues. Each issue names the files it owns. **Only edit files your issue owns.** If you need a change to a shared contract (`app/models.py`, `db/schema.sql`, `docs/interfaces.md`), make it a small separate commit and say so in the PR.
+- Work is split into GitHub issues, labeled `angad` or `aran` by owner (see README). Each issue names the files it owns. **Only edit files your issue owns.** If you need a change to a shared contract (`app/models.py`, `db/schema.sql`, `docs/interfaces.md`), make it a small separate commit and say so in the PR.
 - Branch per issue: `issue-<number>-<slug>`. Open a PR that says `Closes #<number>`.
 - Stubs raise `NotImplementedError`. Keep the function signatures in `docs/interfaces.md` unless you update that doc in the same PR.
 - Tests go in `tests/`, named after the module (`tests/test_safety.py`). Run with `uv run pytest`.
