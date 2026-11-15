@@ -1,0 +1,21 @@
+name: tests
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+jobs:
+  pytest:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+      - name: Install
+        run: uv sync
+      # No secrets here: database tests and live Gemini/Nominatim tests skip.
+      # Import checks (tests/test_imports.py) and every unit test still run, so a PR that
+      # imports code from an unmerged PR, or breaks another module, fails before merge.
+      - name: Test
+        run: uv run pytest -q
