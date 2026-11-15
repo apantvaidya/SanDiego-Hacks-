@@ -106,7 +106,8 @@ def test_options_reply_full_flow(env):
     p = prof()
     pipeline.first_reply(msg("think i sprained my ankle"), p)
     out = pipeline.options_reply(msg("La Jolla"), p, "think i sprained my ankle")
-    assert out == ["b:True|a:False"]  # ranked order, only #1 verified
+    assert out[0].split("\n\n")[0] == "b:True|a:False"  # ranked order, only #1 verified
+    assert "CARD" in out[0]
     assert calls["level"] == 1        # reused from Text 1, not recomputed
     assert calls["find"] == [(CareLevel.URGENT_CARE, True)]  # ankle -> needs X-ray
     state, ctx = store.get_conversation(p.user_id)
@@ -176,7 +177,7 @@ def test_slow_verify_is_skipped(env, monkeypatch):
     p = prof()
     store.set_conversation(p.user_id, "awaiting_location", {"symptom_text": "ankle", "level_of_care": "urgent_care",
                                                              "level_confidence": 0.9})
-    assert pipeline.options_reply(msg("La Jolla"), p, "ankle") == ["b:False|a:False"]
+    assert pipeline.options_reply(msg("La Jolla"), p, "ankle")[0].startswith("b:False|a:False\n\n")
 
 
 def test_verify_not_implemented_is_skipped(env):
@@ -189,7 +190,7 @@ def test_verify_not_implemented_is_skipped(env):
     p = prof()
     store.set_conversation(p.user_id, "awaiting_location", {"symptom_text": "ankle", "level_of_care": "urgent_care",
                                                              "level_confidence": 0.9})
-    assert pipeline.options_reply(msg("La Jolla"), p, "ankle") == ["b:False|a:False"]
+    assert pipeline.options_reply(msg("La Jolla"), p, "ankle")[0].startswith("b:False|a:False\n\n")
 
 
 @pytest.mark.parametrize("text,expected", [
@@ -249,7 +250,7 @@ def test_update_reanswers_at_saved_place_without_asking(env, monkeypatch):
                         lambda text, pr: seen.setdefault("t", text) and TriageResult(False, "Keep it still.\n\nWhere are you right now?"))
     out = pipeline.after_answer(msg("it hurts a lot it might be broken"), p, ctx)
     assert out[0] == "Keep it still."           # no "Where are you" again
-    assert out[1] == "b:True|a:False"           # options at the saved point
+    assert out[1].startswith("b:True|a:False")   # options at the saved point
     assert seen["t"] == "think i sprained my ankle. Then: it hurts a lot it might be broken"
     assert store.get_conversation(p.user_id)[0] == "idle"
 
@@ -296,3 +297,34 @@ def test_new_question_and_other(env, monkeypatch):
 def test_sort_falls_back_to_update_when_gemini_fails(monkeypatch):
     monkeypatch.setattr(pipeline, "generate_json", lambda **kw: (_ for _ in ()).throw(GeminiError("503")))
     assert pipeline._sort("ankle", "it hurts more") == "update"
+
+
+
+def test_card_words_skip_gemini(monkeypatch):
+    monkeypatch.setattr(pipeline, "generate_json", lambda **kw: (_ for _ in ()).throw(AssertionError("no Gemini")))
+    assert pipeline._sort("ankle", "CARD") == "card"
+    assert pipeline._sort("tobillo", "tarjeta") == "card"
+    assert pipeline._sort("ankle", "directions") == "directions"
+
+
+def test_front_desk_card_english(env, monkeypatch):
+    p = prof()
+    ctx = _answered(env, p)
+    monkeypatch.setattr(pipeline, "_locations_by_id", lambda ids: [{"id": "b", "name": "UCSD Urgent Care", "address": "x"}])
+    out = pipeline.after_answer(msg("card"), p, ctx)[0]
+    assert "FRONT DESK CARD" in out
+    assert "Reason for visit: think i sprained my ankle" in out
+    assert "No insurance, self-pay" in out
+    assert "Here for: UCSD Urgent Care" in out
+    assert "Spanish" not in out
+
+
+def test_front_desk_card_spanish_translates_and_asks_for_interpreter(env, monkeypatch):
+    p = prof(lang="es")
+    ctx = {**_answered(env, p), "symptom_text": "creo que me torcí el tobillo"}
+    monkeypatch.setattr(pipeline, "_locations_by_id", lambda ids: [])
+    monkeypatch.setattr(pipeline, "generate_json", lambda **kw: {"english": "I think I sprained my ankle"})
+    out = pipeline.after_answer(msg("tarjeta"), p, ctx)[0]
+    assert out.startswith("Muestra esto")
+    assert "Reason for visit: I think I sprained my ankle" in out
+    assert "Please offer a Spanish interpreter" in out
