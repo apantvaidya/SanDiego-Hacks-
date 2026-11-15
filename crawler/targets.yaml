@@ -1,10 +1,75 @@
-# Crawl targets. Keep the list tight (Bright Data free tier is about 5,000 credits/month).
-# kind: urgent_care | fqhc | kaiser | er | hcai_charity
-urgent_care: []
+# Crawl targets for #12. Keep the list tight: each page costs one Bright Data request and one
+# Gemini extraction call (both cached in crawler/raw/, so re-runs are free).
+#
+# Fields:
+#   key       stable id prefix for rows from this page (rows get <key> or <key>_<n>)
+#   kind      urgent_care | fqhc | kaiser | er
+#   url       page to fetch
+#   hint      what to look for on this page (passed to the extractor)
+#   accepts   coverage this site is known to take, merged with what the page says
+#   blocked   true if a plain request fails (shown in the pitch: why Bright Data)
+#   apply_to_name  org-level page (billing, sliding fee): its facts patch every existing row
+#                  whose name contains this text, instead of creating rows
+# Locations a page names without a street (for example FHCSD's walk-in list) become patches
+# that update existing rows with that name (walk-in, hours, accepts), so they need the CHG
+# import (#11) loaded first. Marque and MD Today are left out: their home pages list no
+# addresses, and both chains are already in the CHG data.
+#
+# Probed Nov 15 01:25 PT with a plain request: AFC pricing pages return 500, Kaiser facility
+# pages loop on 302, Concentra returns 403. Those need Bright Data Web Unlocker.
+
+urgent_care:
+  - key: afc_mira_mesa
+    url: https://www.afcurgentcare.com/mira-mesa/resources/pricing-insurance
+    hint: self-pay office visit price, X-ray price, accepted insurance, hours, address
+    accepts: [uninsured]
+    blocked: true
+  - key: afc_mission_valley
+    url: https://www.afcurgentcare.com/mission-valley/resources/pricing-insurance
+    hint: self-pay office visit price, X-ray price, accepted insurance, hours, address
+    accepts: [uninsured]
+    blocked: true
+  - key: afc_clairemont
+    url: https://www.afcurgentcare.com/clairemont/resources/pricing-insurance
+    hint: self-pay office visit price, X-ray price, accepted insurance, hours, address
+    accepts: [uninsured]
+    blocked: true
+  - key: concentra_hillcrest
+    url: https://www.concentra.com/urgent-care-centers/california/san-diego/hillcrest-urgent-care/
+    hint: hours, address, phone, walk-in, X-ray on site, self-pay price if listed
+    accepts: [uninsured]
+    blocked: true
+  - key: south_bay_urgent_care
+    url: https://www.southbayurgentcare.com/
+    hint: locations, hours, X-ray on site, self-pay or cash prices, insurance accepted
+    accepts: [uninsured]
+  - key: ucsd_urgent_care
+    url: https://health.ucsd.edu/care/walk-in-same-day/urgent-care/
+    hint: urgent care locations with address and hours, X-ray, walk-in, self-pay
+    accepts: [uninsured]
+
 fqhc:
-  - name: Family Health Centers of San Diego (urgent care)
+  - key: fhcsd_urgent
     url: https://www.fhcsd.org/urgent
-  - name: Family Health Centers of San Diego (billing / sliding fee)
+    hint: each walk-in urgent care clinic by name with its walk-in hours, uninsured sliding fee
+    accepts: [uninsured]
+  - key: fhcsd_billing
     url: https://www.fhcsd.org/billing-and-insurance
-kaiser: []
-hcai_charity: []
+    hint: sliding fee scale amounts by income (percent of federal poverty level), insurance accepted
+    accepts: [uninsured]
+    apply_to_name: Family Health Centers of San Diego
+
+kaiser:
+  - key: kaiser_sd_medical_center_urgent
+    url: https://healthy.kaiserpermanente.org/southern-california/facilities/kaiser-permanente-san-diego-medical-center-331581/departments/urgent-care-dlp-173705
+    hint: urgent care hours, address, phone, walk-in
+    accepts: [kaiser]
+    blocked: true
+  - key: kaiser_otay_mesa_urgent
+    url: https://healthy.kaiserpermanente.org/southern-california/facilities/otay-mesa-medical-offices-100079
+    hint: urgent care hours, address, phone, walk-in
+    accepts: [kaiser]
+    blocked: true
+
+# Lowest priority (PDF heavy). Left for later.
+er: []
