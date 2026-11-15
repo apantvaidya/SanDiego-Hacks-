@@ -32,6 +32,17 @@ def money(amount: float) -> str:
     return f"${amount:,.0f}" if float(amount).is_integer() else f"${amount:,.2f}"
 
 
+def format_phone(phone: str) -> str:
+    """US numbers as (877) 693-6266, whatever the source wrote ("(877)-693-6266",
+    "877.693.6266", "+18776936266"). Anything else (extensions, short codes) is left as is."""
+    digits = "".join(c for c in phone if c.isdigit())
+    if len(digits) == 11 and digits[0] == "1":
+        digits = digits[1:]
+    if len(digits) != 10 or any(c.isalpha() for c in phone):
+        return phone
+    return f"({digits[:3]}) {digits[3:6]}-{digits[6:]}"
+
+
 def _clock(tm: time, lang: str) -> str:
     if tm == time(23, 59):
         return "midnight" if lang == "en" else "medianoche"
@@ -109,7 +120,7 @@ def _card(opt: RenderedOption, i: int, now: datetime, lang: str) -> str:
     lines.append(t("render.cost", lang, cost=format_cost(opt.cost, lang)))
     if opt.reason:
         lines.append(t("render.why", lang, reason=opt.reason))
-    lines.append(t("render.contact", lang, address=loc.address, phone=loc.phone) if loc.phone
+    lines.append(t("render.contact", lang, address=loc.address, phone=format_phone(loc.phone)) if loc.phone
                  else t("render.contact_no_phone", lang, address=loc.address))
     lines.append(_source_line(opt, i, now, lang))
     return "\n".join(lines)

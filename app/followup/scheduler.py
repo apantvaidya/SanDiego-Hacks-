@@ -61,6 +61,19 @@ def checkin_text(topic: str, language: str) -> str:
     return t("followup.checkin", _lang(language), topic=_short(topic))
 
 
+FOLLOWUP_KEYS = ("symptom_text", "last_level_of_care", "recommended_location_ids")
+
+
+def followup_context(context: dict | None) -> dict:
+    """The part of a finished conversation's context the follow-up needs (what
+    pipeline._finish saved). Empty if no answer was given yet. Used when a safety reply
+    resets the conversation, so #followup still works afterwards."""
+    context = context or {}
+    if not context.get("last_level_of_care"):
+        return {}
+    return {k: context[k] for k in FOLLOWUP_KEYS if k in context}
+
+
 # --------------------------------------------------------------------------- database
 
 def _db():

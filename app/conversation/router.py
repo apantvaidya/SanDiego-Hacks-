@@ -77,7 +77,10 @@ def handle(msg: InboundMessage) -> list[str]:
         if safety.matched:
             log.warning("safety match: %s", safety.category)
             if state not in ONBOARDING_STATES:
-                store.set_conversation(user.id, "idle", {})
+                # Keep what a pending follow-up needs, so #followup still works afterwards.
+                from app.followup.scheduler import followup_context
+
+                store.set_conversation(user.id, "idle", followup_context(context))
             return [safety.reply]
 
     # 5. Onboarding.

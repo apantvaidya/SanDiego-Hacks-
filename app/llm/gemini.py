@@ -1,6 +1,6 @@
 """Thin Gemini Flash wrapper (google-genai SDK). Owned by #4.
 
-    generate_json(prompt, schema, image=None, system=None) -> dict
+    generate_json(prompt, schema, image=None, system=None, timeout_s=None) -> dict
     generate_text(prompt, system=None) -> str
 
 * Model: GEMINI_MODEL, then one retry on GEMINI_FALLBACK_MODEL (default gemini-3.5-flash).
@@ -82,11 +82,14 @@ def _image_mime(data: bytes) -> str:
     return "image/jpeg"
 
 
-def _config(system: str | None, schema: dict | None) -> types.GenerateContentConfig:
+def _config(system: str | None, schema: dict | None, timeout_s: float | None = None) -> types.GenerateContentConfig:
     kwargs: dict = {
         "system_instruction": system,
         "temperature": 0.2,
     }
+    if timeout_s is not None:  # offline jobs (long PDFs, #14); the webhook keeps TIMEOUT_S
+        kwargs["http_options"] = types.HttpOptions(timeout=int(timeout_s * 1000),
+                                                   retry_options=types.HttpRetryOptions(attempts=1))
     if schema is not None:
         kwargs["response_mime_type"] = "application/json"
         kwargs["response_json_schema"] = schema
@@ -140,12 +143,14 @@ def _finish_reason(resp) -> str | None:
         return None
 
 
-def generate_json(prompt: str, schema: dict, image: bytes | None = None, system: str | None = None) -> dict:
+def generate_json(prompt: str, schema: dict, image: bytes | None = None, system: str | None = None,
+                  timeout_s: float | None = None) -> dict:
+    """timeout_s overrides the per-attempt TIMEOUT_S, for offline jobs only."""
     contents: list = []
     if image is not None:
         contents.append(types.Part.from_bytes(data=image, mime_type=_image_mime(image)))
     contents.append(prompt)
-    text = _generate(contents, _config(system, schema))
+    text = _generate(contents, _config(system, schema, timeout_s))
     try:
         out = json.loads(text)
     except json.JSONDecodeError as e:
