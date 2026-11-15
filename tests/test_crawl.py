@@ -21,6 +21,18 @@ def test_html_to_text_drops_scripts_and_keeps_phone():
     assert "Clinic" in text and "X-ray on site" in text and "6195551234" in text
 
 
+def test_html_to_text_reads_hours_from_structured_data():
+    html = """<html><head><script type="application/ld+json">{"@type": "MedicalClinic",
+      "openingHoursSpecification": [
+        {"dayOfWeek": "https://schema.org/Monday", "opens": "08:00:00", "closes": "20:00:00"},
+        {"dayOfWeek": ["Saturday", "Sunday"], "opens": "08:00:00", "closes": "17:00:00"}]}</script>
+      <script type="application/ld+json">not json</script></head><body>AFC Urgent Care</body></html>"""
+    text = html_to_text(html)
+    assert text.startswith("Opening hours (page structured data): Monday 08:00-20:00; Saturday 08:00-17:00; Sunday 08:00-17:00")
+    assert "AFC Urgent Care" in text
+    assert html_to_text("<p>no data</p>") == "no data"
+
+
 def test_normalize_hours_ampm_overnight_midnight():
     hours = normalize_hours([
         {"day": "mon", "open": "8:00 AM", "close": "8:00 PM"},
@@ -139,3 +151,17 @@ def test_load_and_patches_against_neon_rolled_back():
         pass
     with get_conn() as conn:
         assert conn.execute("SELECT count(*) FROM locations WHERE id LIKE 'test_crawl%%'").fetchone()["count"] == 0
+
+
+def test_single_target_keeps_only_main_row(monkeypatch, tmp_path):
+    import crawler.crawl as crawl
+    import crawler.extract as extract
+
+    targets = tmp_path / "t.yaml"
+    targets.write_text("er:\n  - key: kaiser_zion_er\n    url: https://example.org/zion\n    accepts: [kaiser]\n    single: true\n")
+    monkeypatch.setattr(crawl, "fetch", lambda url, client, direct=False: ("<p>" + "x" * 300 + "</p>", "cache"))
+    monkeypatch.setattr(extract, "extract_rows", lambda target, text, client: [
+        {"id": "kaiser_zion_er_4647_zion_ave", "name": "Zion"}, {"id": "kaiser_zion_er_994_w", "name": "HearUSA"}])
+    monkeypatch.setattr(extract, "extract_patches", lambda target, text: [])
+    rows, _, _ = crawl.run_crawl(str(targets))
+    assert rows == [{"id": "kaiser_zion_er", "name": "Zion"}]
