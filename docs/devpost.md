@@ -1,4 +1,4 @@
-# Devpost write-up (draft)
+# Devpost write-up
 
 Paste into Devpost. Select every track in the table at the bottom.
 
@@ -27,7 +27,8 @@ Same question, three people: a Kaiser member gets Kaiser urgent care and the adv
 - **Safety:** a hard-coded red-flag screen (11 categories, English and Spanish, typos) runs before every model call.
 - **Gemini API:** reads the insurance card photo, writes first-aid steps, picks the level of care (code moves it up a level when unsure), extracts the place from "I'm near UCSD", ranks candidates, and extracts facts from crawled clinic pages. **Gemini only returns database IDs when ranking; code writes every name, price, and hour**, so it can't invent a clinic.
 - **Neon Postgres + PostGIS:** one SQL query finds candidates by coverage, open-now (an `is_open_now()` SQL function over stored hours), capability (X-ray, walk-in), and distance. Users, profiles, conversation state, and the follow-up queue live in Neon too.
-- **Medi-Cal network data:** Community Health Group's public FHIR provider directory (Da Vinci Plan-Net): 81 San Diego urgent cares, labs, and community health center sites, with hours, geocoded and checked.
+- **Medi-Cal network data:** Community Health Group's public FHIR provider directory (Da Vinci Plan-Net): 77 San Diego urgent care, lab, and community health center sites, with hours, geocoded and checked. The #1 option for a Medi-Cal member is re-checked live against that directory at answer time.
+- **Plan costs:** Gemini reads Covered California's 2026 standard plan designs PDF, so a Kaiser Silver 70 member sees "$50 copay" for urgent care (checked by hand against page 6 of the PDF).
 - **Bright Data:** crawls clinic and urgent care sites for prices, hours, and walk-in rules. Many of the useful pages block plain requests (an urgent care chain's pricing pages return 500, Kaiser's facility pages loop on redirects, another chain returns 403); Web Unlocker gets them. A clinic's walk-in list is matched to directory sites by name.
 
 ## Challenges
@@ -36,13 +37,20 @@ Same question, three people: a Kaiser member gets Kaiser urgent care and the adv
 - Two of our agents built the same feature in parallel; we added claim-before-start rules and CI.
 - Gemini's free tier caps requests per model per day; the client skips exhausted models and spills over to others.
 
+## Accomplishments that we're proud of
+
+- The same text, "think i sprained my ankle", gets three different correct answers for Kaiser, Medi-Cal, and uninsured users, each with a cost and a source link.
+- No clinic, price, or hour in a reply comes from the model. Every fact is rendered from the database.
+- Emergencies never wait on AI: the red-flag screen answers in under a second.
+- It runs end to end on a real iMessage line, plus a local browser chat page that uses the same pipeline as a backup.
+
 ## What we learned
 
 The hard part isn't the chatbot. It's knowing, right now, which nearby place takes this person's coverage, is open, can do an X-ray, and what it costs. That is a data problem, and it needs data from many sources.
 
 ## What's next
 
-More plans and counties, live verification of every recommendation, hospital charity-care rules (California requires them up to 400% FPL), voice onboarding, and booking.
+More plans and counties, live verification of every clinic website (not only the Medi-Cal directory), hospital charity-care rules (California requires them up to 400% FPL), voice onboarding, and booking.
 
 ## Built with
 
@@ -58,9 +66,9 @@ Python, FastAPI, Sendblue, Gemini API, Neon, PostGIS, Bright Data, FHIR (Da Vinc
 | **Best Overall / Most Innovative** | Insurance-agnostic navigation over iMessage: the same question gets three different correct answers for Kaiser, Medi-Cal, and uninsured users. |
 | **MLH: Best Domain from GoDaddy Registry** | One-page site in `site/` (domain to be registered with the MLH code). |
 
-## Honest status (keep this current before submitting)
+## Honest status (checked Sun Nov 15, 11:00 AM)
 
-- Live verification of the top option (#15) and the Bright Data crawl (#12) are built but waiting on a Bright Data Web Unlocker zone; until then, cards say "checked <time>", not "verified".
-- Kaiser copay shows "amount not confirmed" until the plan benefits extraction (#14, merged) is run against the database; it needs Gemini credits.
-- Once PR #41 (#15) merges, CHG directory sites are verified live at answer time; other clinic websites wait on the Bright Data zone.
-- The free Sendblue line only reaches verified phones, so judges watch the demo phone.
+- Kaiser copay: loaded ($50 urgent care, $400 ER, $50 primary care) from Covered California's 2026 Silver 70 design (#14 closed).
+- Live verification: CHG directory sites are re-checked at answer time (#15). Clinic websites need the Bright Data Web Unlocker zone; PR #45 fixes crawl targets found with the new zone.
+- AFC's self-pay price: PR #45 found AFC's site lists no price, so don't quote $199 on stage until it's confirmed.
+- The free Sendblue line only reaches verified phones, so judges watch the demo phone (or the local chat page, `uv run python -m app.local`).
