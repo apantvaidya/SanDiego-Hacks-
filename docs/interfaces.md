@@ -63,6 +63,9 @@ Inbound path: webhook (`app/main.py`) or poller (`app/messaging/poller.py`) -> `
 
 ### conversation
 - `app/conversation/router.py`: `handle(msg: InboundMessage) -> list[str]`
+  Order: opted-out check -> STOP/START/HELP and #commands -> `safety.screen` (every state) -> onboarding if no active profile or an onboarding state -> follow-up reply -> `awaiting_location`: `pipeline.options_reply` -> else `pipeline.first_reply`. Stubs that raise `NotImplementedError` get placeholder replies.
+- `app/conversation/store.py`: repository helpers for `users`, `profiles`, `conversations`. Use these instead of new SQL: `get_or_create_user(phone)`, `get_active_profile(user)`, `list_profiles(user_id)`, `upsert_profile(user_id, label, **fields)`, `set_active_profile`, `ensure_demo_profile(user, label)`, `set_opted_out`, `set_language`, `delete_profiles`, `delete_user`, `get_conversation(user_id) -> (state, context)`, `set_conversation(user_id, state, context=None)` (None keeps context).
+  **State ownership:** pipeline, onboarding, and follow-up set their own next state with `set_conversation`. The pipeline reads `symptom_text` from context in `awaiting_location`.
 - `app/conversation/onboarding.py`: `handle_onboarding(user: User, msg: InboundMessage) -> list[str]`
 - `app/conversation/onboarding.py`: `extract_card(image: bytes) -> CardExtraction`
 - `app/conversation/fpl.py`: `income_brackets(household_size: int) -> list[IncomeBracket]`  (from current HHS poverty guidelines)
@@ -71,7 +74,8 @@ Inbound path: webhook (`app/main.py`) or poller (`app/messaging/poller.py`) -> `
 ### followup (`app/followup/scheduler.py`)
 - `schedule_followup(user_id: UUID, topic: str, hours: int = 20) -> None`
 - `run_due() -> int`  (send due follow-ups, return count)
-- `followup_now(user_id: UUID) -> list[str]`  (used by `#followup`)
+- `followup_now(user_id: UUID) -> list[str]`  (used by `#followup`; set state `awaiting_followup_reply`)
+- `handle_followup_reply(user: User, profile: Profile, text: str) -> list[str]`  (router calls this in state `awaiting_followup_reply`)
 
 ### db (`app/db.py`)
 - `get_conn()` context manager returning a psycopg connection to `DATABASE_URL`.
