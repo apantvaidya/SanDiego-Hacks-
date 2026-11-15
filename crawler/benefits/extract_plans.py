@@ -38,6 +38,7 @@ log = logging.getLogger(__name__)
 USER_AGENT = "care-navigator-hackathon"
 MAX_REASONABLE_COPAY = 2_000
 MAX_REASONABLE_DEDUCTIBLE = 20_000
+GEMINI_PDF_TIMEOUT_S = 120  # a whole plan-design PDF takes longer than the webhook's 12 s
 
 PLAN_SOURCES: list[dict] = [
     {
@@ -137,7 +138,8 @@ def extract_plan(pdf_url: str, hint: str = "") -> dict:
         raise ValueError(f"{pdf_url} did not return a PDF ({via})")
     try:
         out = generate_json(prompt=f"Plan design to read: {hint or 'the plan in this document'}",
-                            schema=EXTRACT_SCHEMA, image=body, system=EXTRACT_SYSTEM)
+                            schema=EXTRACT_SCHEMA, image=body, system=EXTRACT_SYSTEM,
+                            timeout_s=GEMINI_PDF_TIMEOUT_S)
     except GeminiError as e:
         raise RuntimeError(f"Gemini could not read {pdf_url}: {e}") from e
     return {**clean(out), "source_url": pdf_url, "extracted_at": datetime.now(timezone.utc),

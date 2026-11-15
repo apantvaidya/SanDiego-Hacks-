@@ -28,8 +28,8 @@ def test_clean_rejects_strings_bools_and_unknown_telehealth():
 def test_extract_plan_passes_pdf_and_hint(monkeypatch, fake_pdf):
     seen = {}
 
-    def fake(prompt, schema, image=None, system=None):
-        seen.update(prompt=prompt, image=image, system=system)
+    def fake(prompt, schema, image=None, system=None, timeout_s=None):
+        seen.update(prompt=prompt, image=image, system=system, timeout_s=timeout_s)
         return {"urgent_care_copay": 50, "er_copay": 400, "pcp_copay": 50, "telehealth": "copay",
                 "telehealth_copay": 50, "deductible": 5400, "deductible_applies_to_urgent_care": False,
                 "evidence": "Urgent care $50"}
@@ -37,7 +37,7 @@ def test_extract_plan_passes_pdf_and_hint(monkeypatch, fake_pdf):
     monkeypatch.setattr(ep, "generate_json", fake)
     row = extract_plan("https://example.org/sbc.pdf", hint="Individual-only Silver Plan")
     assert seen["image"].startswith(b"%PDF-") and "Individual-only Silver Plan" in seen["prompt"]
-    assert "Never estimate" in seen["system"]
+    assert "Never estimate" in seen["system"] and seen["timeout_s"] >= 60
     assert row["urgent_care_copay"] == 50 and row["source_url"] == "https://example.org/sbc.pdf"
     assert row["fetched_via"] == "direct" and row["extracted_at"] is not None
 
