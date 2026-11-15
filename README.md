@@ -28,6 +28,13 @@ Run tests:
 uv run pytest
 ```
 
+## Team setup notes
+- Get the team `.env` privately from a teammate (never commit it or paste it in issues, PRs, or Slack). Keep `DATABASE_URL` in single quotes so `source .env` works.
+- **One shared Neon database** (branch `production`). Don't drop tables or run destructive SQL without telling the team; experiment on a Neon branch.
+- **Bright Data has no zones yet.** Create a Web Unlocker zone in the Bright Data control panel and set `BRIGHTDATA_UNLOCKER_ZONE` before #12 or #15 can fetch pages.
+- Still empty in the team `.env`: `NEON_API_KEY` (needed by #13 for crawl branches), `BRIGHTDATA_UNLOCKER_ZONE`. Each person sets their own `DEMO_PHONE` and `SENDBLUE_WEBHOOK_SECRET`.
+- Optional Neon tooling for Claude Code: `npx -y neon@latest mcp --oauth --project --agent claude-code -y` and `npx -y neon@latest skills -s neon -s neon-postgres --agent claude-code -y`. Don't run `neon init` or `neon link` (they can overwrite `DATABASE_URL`).
+
 ## Messaging (Sendblue)
 Tested Nov 15, 2026 on the free shared-line plan: outbound texts, inbound webhook, inbound polling, and photos all work.
 - Free plan: every recipient must be added as a contact in the Sendblue dashboard and text the line once first. Only the verified demo phone can use it.
